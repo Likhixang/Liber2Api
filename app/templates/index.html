@@ -57,7 +57,7 @@
         <div>
           <span class="text-lg font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
             Liber2Api
-            <span class="text-xs px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">v1.4.1</span>
+            <span class="text-xs px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">v1.5.0</span>
           </span>
           <p class="text-xs text-slate-500 dark:text-slate-400 hidden sm:block">LibertAI 多账号负载均衡与 OpenAI 兼容代理网关</p>
         </div>
@@ -312,16 +312,13 @@
         </div>
 
         <div class="mt-4 flex flex-wrap items-center gap-1.5 text-[11px]">
-          <span class="text-slate-500 dark:text-slate-400 font-medium mr-1">可用基座模型:</span>
-          <span class="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono font-medium">deepseek-v4.1-flash</span>
-          <span class="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono font-medium">deepseek-v4.1-flash-1017</span>
+          <span class="text-slate-500 dark:text-slate-400 font-medium mr-1">纯血基座模型:</span>
+          <span class="px-2 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/40 font-mono font-medium">deepseek-v4.1-flash-1017</span>
           <span class="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono font-medium">qwen3.8-27b</span>
           <span class="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono font-medium">qwen3.6-35b-a3b</span>
           <span class="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono font-medium">qwen3.5-122b-a10b</span>
-          <span class="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono font-medium">glm-5.3</span>
-          <span class="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono font-medium">glm-5.3-flash</span>
           <span class="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono font-medium">hermes-3-8b</span>
-          <span class="text-[10px] text-slate-400 dark:text-slate-500 ml-1">（已自动合并-tee与-thinking，传 reasoning_effort 自动路由思考强度）</span>
+          <span class="text-[10px] text-slate-400 dark:text-slate-500 ml-1">（已屏蔽上游量化掺水模型；默认开启 Thinking 深度思考）</span>
         </div>
       </div>
     </div>

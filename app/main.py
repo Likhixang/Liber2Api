@@ -69,7 +69,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Liber2Api",
-    version="1.4.1",
+    version="1.5.0",
     description="High-availability OpenAI-compatible 2API proxy with account pool management for LibertAI.",
     lifespan=lifespan,
 )
@@ -444,21 +444,16 @@ async def get_models(_auth: bool = Depends(verify_api_key)):
         models = raw_data.get("data", [])
     except Exception as e:
         logger.warning("Failed to proxy models from upstream: %s", e)
-        # Fallback list of known models
+        # Fallback list of known pure-blood models
         models = [
-            {"id": "qwen3.6-35b-a3b", "object": "model", "owned_by": "libertai"},
-            {"id": "qwen3.6-35b-a3b-thinking", "object": "model", "owned_by": "libertai"},
-            {"id": "qwen3.8-27b", "object": "model", "owned_by": "libertai"},
-            {"id": "qwen3.8-27b-thinking", "object": "model", "owned_by": "libertai"},
-            {"id": "glm-5.3", "object": "model", "owned_by": "libertai"},
-            {"id": "glm-5.3-thinking", "object": "model", "owned_by": "libertai"},
-            {"id": "glm-5.3-flash", "object": "model", "owned_by": "libertai"},
-            {"id": "glm-5.3-flash-thinking", "object": "model", "owned_by": "libertai"},
-            {"id": "deepseek-v4.1-flash", "object": "model", "owned_by": "libertai"},
-            {"id": "deepseek-v4.1-flash-thinking", "object": "model", "owned_by": "libertai"},
-            {"id": "deepseek-v4.1-flash-1017-thinking", "object": "model", "owned_by": "libertai"},
-            {"id": "qwen3.5-122b-a10b", "object": "model", "owned_by": "libertai"},
-            {"id": "hermes-3-8b-tee", "object": "model", "owned_by": "libertai"},
+            {"id": "qwen3.6-35b-a3b", "object": "model", "owned_by": "Qwen"},
+            {"id": "qwen3.6-35b-a3b-thinking", "object": "model", "owned_by": "Qwen"},
+            {"id": "qwen3.8-27b", "object": "model", "owned_by": "Qwen"},
+            {"id": "qwen3.8-27b-thinking", "object": "model", "owned_by": "Qwen"},
+            {"id": "deepseek-v4.1-flash-1017", "object": "model", "owned_by": "deepseek-ai"},
+            {"id": "deepseek-v4.1-flash-1017-thinking", "object": "model", "owned_by": "deepseek-ai"},
+            {"id": "qwen3.5-122b-a10b", "object": "model", "owned_by": "Qwen"},
+            {"id": "hermes-3-8b-tee", "object": "model", "owned_by": "NousResearch"},
         ]
     canonical_list = canonicalize_models_list(models)
     return {"object": "list", "data": canonical_list}
@@ -474,7 +469,11 @@ async def chat_completions(request: Request, _auth: bool = Depends(verify_api_ke
     # Intelligently resolve model with reasoning_effort and tee options
     requested_model = body.get("model", "")
     headers_dict = {k.lower(): v for k, v in request.headers.items()}
-    upstream_model = resolve_upstream_model(requested_model, payload=body, headers=headers_dict)
+    try:
+        upstream_model = resolve_upstream_model(requested_model, payload=body, headers=headers_dict)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
     body["model"] = upstream_model
     logger.info("Routing completion: client model '%s' -> upstream model '%s'", requested_model, upstream_model)
 

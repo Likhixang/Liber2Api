@@ -263,33 +263,39 @@ async def test_multi_token_management():
 def test_model_resolver_and_canonicalization():
     from app.model_resolver import canonicalize_models_list, resolve_upstream_model
 
-    # 1. Test canonicalize list merges -thinking and -tee
+    # 1. Test canonicalize list merges -thinking and -tee and filters adulterated models
     raw_models = [
         {"id": "qwen3.8-27b"},
         {"id": "qwen3.8-27b-thinking"},
         {"id": "qwen3.8-27b-tee"},
         {"id": "qwen3.8-27b-tee-thinking"},
-        {"id": "deepseek-v4.1-flash"},
-        {"id": "deepseek-v4.1-flash-thinking"},
+        {"id": "deepseek-v4.1-flash-1017"},
+        {"id": "deepseek-v4.1-flash-1017-thinking"},
+        {"id": "glm-5.3"},
+        {"id": "glm-5.3-flash"},
         {"id": "hermes-3-8b-tee"},
     ]
     canonical = canonicalize_models_list(raw_models)
     canonical_ids = [m["id"] for m in canonical]
-    assert canonical_ids == ["qwen3.8-27b", "deepseek-v4.1-flash", "hermes-3-8b"]
+    # GLM is blocked, only pure-blood models are exposed
+    assert canonical_ids == ["qwen3.8-27b", "deepseek-v4.1-flash-1017", "hermes-3-8b"]
 
     # 2. Test resolve_upstream_model
-    # Case A: Base model with reasoning_effort=high -> thinking
-    assert resolve_upstream_model("deepseek-v4.1-flash", {"reasoning_effort": "high"}) == "deepseek-v4.1-flash-thinking"
+    # Case A: Blocked adulterated models raise ValueError
+    with pytest.raises(ValueError):
+        resolve_upstream_model("glm-5.3")
+    with pytest.raises(ValueError):
+        resolve_upstream_model("glm-5.3-flash")
 
-    # Case B: Base model with reasoning_effort=none -> base model
-    assert resolve_upstream_model("deepseek-v4.1-flash-thinking", {"reasoning_effort": "none"}) == "deepseek-v4.1-flash"
+    # Case B: Alias resolution (deepseek-v4.1-flash upgrades to official deepseek-v4.1-flash-1017)
+    assert resolve_upstream_model("deepseek-v4.1-flash", {"reasoning_effort": "none"}) == "deepseek-v4.1-flash-1017"
+    assert resolve_upstream_model("deepseek-v4.1-flash") == "deepseek-v4.1-flash-1017-thinking"
 
     # Case C: Model with tee=true (defaults to thinking enabled)
     assert resolve_upstream_model("qwen3.8-27b", {"tee": True}) == "qwen3.8-27b-tee-thinking"
     assert resolve_upstream_model("qwen3.8-27b", {"tee": True, "reasoning_effort": "none"}) == "qwen3.8-27b-tee"
 
     # Case D: Default without reasoning_effort defaults to thinking enabled
-    assert resolve_upstream_model("deepseek-v4.1-flash") == "deepseek-v4.1-flash-thinking"
     assert resolve_upstream_model("deepseek-v4.1-flash-1017") == "deepseek-v4.1-flash-1017-thinking"
 
     # Case D: Model with tee=true and reasoning_effort=max -> FIRST tee THEN thinking
