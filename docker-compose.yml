@@ -18,8 +18,8 @@ services:
       - COOLDOWN_HOURS=5
       # 账号 Token 自动后台保活轮转周期（秒），默认 12 小时 (43200)
       - AUTO_REFRESH_INTERVAL=43200
-      # Proxy URL (Duck2api style / Resin Forward Proxy: http://Default:TOKEN@resin:2260 或通用代理)
-      # - PROXY_URL=http://Default:my-token@resin:2260
+      # Proxy URL (支持 Resin 格式或通用代理)
+      - PROXY_URL=${PROXY_URL:-}
       # 可选：Resin 外部粘性网关 (反代模式)
       # - RESIN_URL=http://127.0.0.1:2260/my-resin-token
       # - RESIN_PLATFORM_NAME=Default
