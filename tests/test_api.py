@@ -284,8 +284,13 @@ def test_model_resolver_and_canonicalization():
     # Case B: Base model with reasoning_effort=none -> base model
     assert resolve_upstream_model("deepseek-v4.1-flash-thinking", {"reasoning_effort": "none"}) == "deepseek-v4.1-flash"
 
-    # Case C: Model with tee=true
-    assert resolve_upstream_model("qwen3.8-27b", {"tee": True}) == "qwen3.8-27b-tee"
+    # Case C: Model with tee=true (defaults to thinking enabled)
+    assert resolve_upstream_model("qwen3.8-27b", {"tee": True}) == "qwen3.8-27b-tee-thinking"
+    assert resolve_upstream_model("qwen3.8-27b", {"tee": True, "reasoning_effort": "none"}) == "qwen3.8-27b-tee"
+
+    # Case D: Default without reasoning_effort defaults to thinking enabled
+    assert resolve_upstream_model("deepseek-v4.1-flash") == "deepseek-v4.1-flash-thinking"
+    assert resolve_upstream_model("deepseek-v4.1-flash-1017") == "deepseek-v4.1-flash-1017-thinking"
 
     # Case D: Model with tee=true and reasoning_effort=max -> FIRST tee THEN thinking
     assert resolve_upstream_model("qwen3.8-27b", {"tee": True, "reasoning_effort": "max"}) == "qwen3.8-27b-tee-thinking"

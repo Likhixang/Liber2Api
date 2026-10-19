@@ -100,17 +100,17 @@ def resolve_upstream_model(
         wants_tee = True
 
     # Check Thinking / Reasoning intent
+    # Default is medium (Thinking enabled) unless client explicitly specifies reasoning_effort == "none"
     reasoning_effort = payload_data.get("reasoning_effort")
     if reasoning_effort is not None:
         effort_str = str(reasoning_effort).strip().lower()
         if effort_str == "none":
             wants_thinking = False
-        elif effort_str in ACTIVE_REASONING_EFFORTS:
-            wants_thinking = True
         else:
             wants_thinking = True
     else:
-        wants_thinking = had_thinking
+        # Default when reasoning_effort is omitted: default to medium (thinking enabled)
+        wants_thinking = True
 
     # Assemble upstream target model: First -tee, then -thinking
     target_model = base_name
