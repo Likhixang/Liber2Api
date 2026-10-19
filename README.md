@@ -17,6 +17,10 @@
 ## ✨ 核心特性
 
 - 🛠 **原生支持 Function Calling (Tools)**：底层对接官方 vLLM 引擎，无论是流式（Stream）还是非流式，均 100% 原生支持 OpenAI 工具调用格式，完美适配各类 Agent（如 Claude Code, Cline, Dify, LangChain 等）。
+- 🌊 **流式思维链平滑与防抖处理器 (Stream Normalizer)**：
+  - **混流原子拆解**：针对上游在同一个 Chunk 混塞 `reasoning` 和 `content` 的情况，自动拆分为前后两个独立 SSE 事件，杜绝客户端状态机紊乱。
+  - **单向状态防抖保护**：一旦正文开始流出，自动压制后继零星思维链碎片，杜绝「思考 ➔ 蹦出一段回答 ➔ 再次进入思考」的跳变问题。
+  - **全客户端双写兼容**：同时填充 `delta.reasoning` 与 `delta.reasoning_content`，兼顾 DeepSeek、OpenAI 及各开源 WebUI 客户端。
 - 🧠 **智能模型合并与思考等级路由**：
   - `/v1/models` 自动智能合并 `-tee` 和 `-thinking` 等冗余后缀，提供简洁统一的模型列表。
   - 智能感知客户端参数：根据 `reasoning_effort` 自动路由思考强度（`none` 调度基础模型，`low` / `medium` / `high` / `max` 自动路由至对应 thinking 增强版）。

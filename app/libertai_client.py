@@ -2,6 +2,7 @@ from urllib.parse import quote_plus, urlparse, urlunparse
 import httpx
 from typing import Any, AsyncGenerator, Dict, Optional, Tuple
 import app.config as config
+from app.stream_normalizer import StreamReasoningNormalizer, normalize_sse_stream
 
 
 class LibertAIException(Exception):
@@ -253,6 +254,8 @@ class LibertAIClient:
             resp = await client.post(url, json=payload, headers=headers)
             try:
                 body = resp.json()
+                if resp.status_code == 200 and isinstance(body, dict):
+                    body = StreamReasoningNormalizer().normalize_json_response(body)
             except Exception:
                 body = {"detail": resp.text}
             return resp.status_code, body
@@ -284,7 +287,7 @@ class LibertAIClient:
 
             return resp.status_code, error_gen()
 
-        async def stream_gen() -> AsyncGenerator[bytes, None]:
+        async def raw_stream_gen() -> AsyncGenerator[bytes, None]:
             try:
                 async for chunk in resp.aiter_bytes():
                     yield chunk
@@ -292,4 +295,4 @@ class LibertAIClient:
                 await resp.aclose()
                 await client.aclose()
 
-        return resp.status_code, stream_gen()
+        return resp.status_code, normalize_sse_stream(raw_stream_gen())

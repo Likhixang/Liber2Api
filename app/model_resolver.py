@@ -29,20 +29,24 @@ ACTIVE_REASONING_EFFORTS = {"low", "medium", "high", "xhigh", "max"}
 
 def strip_model_suffixes(model_name: str) -> Tuple[str, bool, bool]:
     """
-    Strips -thinking and -tee suffixes in canonical order.
+    Strips -thinking and -tee suffixes regardless of ordering.
     Returns (base_name, had_tee, had_thinking).
     """
     name = model_name.strip()
     had_thinking = False
     had_tee = False
 
-    if name.endswith("-thinking"):
-        had_thinking = True
-        name = name[:-9]
-
-    if name.endswith("-tee"):
-        had_tee = True
-        name = name[:-4]
+    changed = True
+    while changed:
+        changed = False
+        if name.endswith("-thinking"):
+            had_thinking = True
+            name = name[:-9]
+            changed = True
+        if name.endswith("-tee"):
+            had_tee = True
+            name = name[:-4]
+            changed = True
 
     return name, had_tee, had_thinking
 

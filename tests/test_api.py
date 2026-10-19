@@ -310,3 +310,64 @@ def test_duck2api_proxy_url_resolution():
         assert proxy_gen == "http://127.0.0.1:7890"
     finally:
         config.PROXY_URL = orig
+
+
+@pytest.mark.asyncio
+async def test_stream_reasoning_normalizer():
+    from app.stream_normalizer import StreamReasoningNormalizer, normalize_sse_stream
+
+    normalizer = StreamReasoningNormalizer()
+
+    # 1. Test dual-write on pure thinking chunk
+    chunk1 = {"choices": [{"delta": {"reasoning": "Thinking step 1"}}]}
+    res1 = normalizer.process_chunk_dict(chunk1)
+    assert len(res1) == 1
+    assert res1[0]["choices"][0]["delta"]["reasoning"] == "Thinking step 1"
+    assert res1[0]["choices"][0]["delta"]["reasoning_content"] == "Thinking step 1"
+
+    # 2. Test initial empty content chunk does not prematurely trigger content mode
+    chunk_empty = {"choices": [{"delta": {"role": "assistant", "content": ""}}]}
+    res_empty = normalizer.process_chunk_dict(chunk_empty)
+    assert len(res_empty) == 1
+    assert not normalizer.has_started_content
+
+    # 3. Test mixed chunk splitting (e.g. reasoning '.' and content '9.')
+    chunk_mixed = {"choices": [{"delta": {"reasoning": ".", "content": "9."}}]}
+    res_mixed = normalizer.process_chunk_dict(chunk_mixed)
+    assert len(res_mixed) == 2
+    # Frame 1: Flush thinking
+    assert res_mixed[0]["choices"][0]["delta"]["reasoning"] == "."
+    assert res_mixed[0]["choices"][0]["delta"]["reasoning_content"] == "."
+    assert "content" not in res_mixed[0]["choices"][0]["delta"]
+    # Frame 2: Start content
+    assert res_mixed[1]["choices"][0]["delta"]["content"] == "9."
+    assert "reasoning" not in res_mixed[1]["choices"][0]["delta"]
+    assert normalizer.has_started_content is True
+
+    # 4. Test monotonic state guard: jitter reasoning after content started
+    # It must be smoothed into content and never jump back to thinking mode
+    chunk_jitter = {"choices": [{"delta": {"reasoning": " jitter CoT"}}]}
+    res_jitter = normalizer.process_chunk_dict(chunk_jitter)
+    assert len(res_jitter) == 1
+    assert res_jitter[0]["choices"][0]["delta"]["content"] == " jitter CoT"
+    assert "reasoning" not in res_jitter[0]["choices"][0]["delta"]
+    assert "reasoning_content" not in res_jitter[0]["choices"][0]["delta"]
+
+    # 5. End-to-end SSE byte stream normalization
+    raw_sse = (
+        b'data: {"choices":[{"delta":{"reasoning":"Thought"}}]}\n\n'
+        b'data: {"choices":[{"delta":{"reasoning":".","content":"Ans"}}]}\n\n'
+        b'data: [DONE]\n\n'
+    )
+
+    async def fake_stream():
+        yield raw_sse
+
+    out_bytes = b""
+    async for b_chunk in normalize_sse_stream(fake_stream()):
+        out_bytes += b_chunk
+
+    out_text = out_bytes.decode("utf-8")
+    assert "Thought" in out_text
+    assert "reasoning_content" in out_text
+    assert "data: [DONE]" in out_text
