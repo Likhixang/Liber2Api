@@ -57,7 +57,7 @@
         <div>
           <span class="text-lg font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
             Liber2Api
-            <span class="text-xs px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">v1.8.0</span>
+            <span class="text-xs px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">v1.9.0</span>
           </span>
           <p class="text-xs text-slate-500 dark:text-slate-400 hidden sm:block">LibertAI 多账号负载均衡与 OpenAI 兼容代理网关</p>
         </div>
@@ -259,10 +259,10 @@
               <div class="flex items-center justify-between mb-1">
                 <span class="text-slate-500 dark:text-slate-400 font-medium flex items-center gap-1.5">
                   <i data-lucide="key" class="w-3.5 h-3.5 text-amber-500"></i>
-                  <span>API Tokens (多令牌)</span>
+                  <span>API Keys (多密钥)</span>
                 </span>
                 <button onclick="openTokenModal()" class="text-[11px] text-sky-600 dark:text-sky-400 hover:underline flex items-center gap-1 font-sans">
-                  <span>管理令牌</span>
+                  <span>管理密钥</span>
                 </button>
               </div>
               <div class="flex items-center justify-between font-mono text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900 px-2 py-1.5 rounded border border-slate-200 dark:border-slate-800">
@@ -432,7 +432,7 @@
           <div class="p-1.5 rounded-lg bg-sky-50 dark:bg-sky-950/50 text-sky-600 dark:text-sky-400 border border-sky-200 dark:border-sky-800/40">
             <i data-lucide="key" class="w-4 h-4"></i>
           </div>
-          <h3 class="text-sm font-semibold text-slate-900 dark:text-white">API 访问令牌管理 (支持多令牌)</h3>
+          <h3 class="text-sm font-semibold text-slate-900 dark:text-white">API Keys 密钥管理 (支持多密钥)</h3>
         </div>
         <button onclick="closeTokenModal()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
           <i data-lucide="x" class="w-4 h-4"></i>
@@ -455,13 +455,13 @@
       <div class="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 space-y-3 shrink-0">
         <div class="text-xs font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
           <i data-lucide="plus-circle" class="w-3.5 h-3.5 text-sky-500"></i>
-          <span>新建访问令牌</span>
+          <span>新建 API Key 访问密钥</span>
         </div>
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
           <input type="text" id="new-token-name" placeholder="名称 (如: Cherry Studio)" class="text-xs bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/50" />
           <div class="sm:col-span-2 flex space-x-2">
             <input type="text" id="new-token-val" placeholder="自定义或点击随机生成 (可留空自动生成)" class="flex-1 font-mono text-xs bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/50" />
-            <button onclick="generateRandomTokenInput()" type="button" class="px-2.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs shrink-0" title="随机生成安全令牌">
+            <button onclick="generateRandomTokenInput()" type="button" class="px-2.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs shrink-0" title="随机生成安全密钥">
               <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
             </button>
             <button onclick="createToken()" id="btn-create-token" class="px-3.5 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-medium text-xs shadow-sm transition shrink-0">
@@ -477,7 +477,7 @@
           <thead class="bg-slate-50 dark:bg-slate-950/60 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800 sticky top-0">
             <tr>
               <th class="py-2.5 px-3 font-medium">名称</th>
-              <th class="py-2.5 px-3 font-medium">令牌密钥 (Token)</th>
+              <th class="py-2.5 px-3 font-medium">密钥值 (API Key)</th>
               <th class="py-2.5 px-3 font-medium">状态</th>
               <th class="py-2.5 px-3 font-medium">调用次数</th>
               <th class="py-2.5 px-3 font-medium text-right">操作</th>
@@ -499,6 +499,9 @@
     </div>
   </div>
 
+  <!-- Global Web-Native Toast Notification Container -->
+  <div id="toast-container" class="fixed top-5 right-5 z-50 flex flex-col space-y-2.5 max-w-sm pointer-events-none"></div>
+
   <footer class="border-t border-slate-200 dark:border-slate-800/80 py-4 text-center text-xs text-slate-400 dark:text-slate-500">
     Liber2Api &copy; 2026. Built for LibertAI high-availability model proxying.
   </footer>
@@ -506,6 +509,52 @@
   <script>
     // Initialize icons
     lucide.createIcons();
+
+        // Global Web-Native Toast Notification System
+    function showToast(message, type = 'info', duration = 3500) {
+      const container = document.getElementById('toast-container');
+      if (!container) return;
+
+      const toast = document.createElement('div');
+      toast.className = 'pointer-events-auto flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-xl border text-xs font-medium transition-all duration-300 transform translate-y-2 opacity-0 backdrop-blur-md';
+
+      let icon = 'info';
+      let styleClasses = 'bg-white/95 dark:bg-slate-900/95 border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100';
+
+      if (type === 'success') {
+        icon = 'check-circle-2';
+        styleClasses = 'bg-emerald-50/95 dark:bg-emerald-950/90 border-emerald-200 dark:border-emerald-800/80 text-emerald-800 dark:text-emerald-300';
+      } else if (type === 'error') {
+        icon = 'alert-circle';
+        styleClasses = 'bg-rose-50/95 dark:bg-rose-950/90 border-rose-200 dark:border-rose-800/80 text-rose-800 dark:text-rose-300';
+      } else if (type === 'warning') {
+        icon = 'alert-triangle';
+        styleClasses = 'bg-amber-50/95 dark:bg-amber-950/90 border-amber-200 dark:border-amber-800/80 text-amber-800 dark:text-amber-300';
+      }
+
+      toast.className += ' ' + styleClasses;
+      toast.innerHTML = `
+        <i data-lucide="${icon}" class="w-4 h-4 shrink-0"></i>
+        <span class="flex-1 leading-snug">${escapeHtml(message)}</span>
+        <button onclick="this.parentElement.remove()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 ml-1">
+          <i data-lucide="x" class="w-3.5 h-3.5"></i>
+        </button>
+      `;
+
+      container.appendChild(toast);
+      lucide.createIcons();
+
+      requestAnimationFrame(() => {
+        toast.classList.remove('translate-y-2', 'opacity-0');
+        toast.classList.add('translate-y-0', 'opacity-100');
+      });
+
+      setTimeout(() => {
+        toast.classList.remove('translate-y-0', 'opacity-100');
+        toast.classList.add('-translate-y-2', 'opacity-0');
+        setTimeout(() => toast.remove(), 300);
+      }, duration);
+    }
 
     // Theme Management
     function initThemeIcons() {
@@ -680,11 +729,11 @@
         });
         const data = await resp.json();
         if (!resp.ok) throw new Error(data.detail || '保存失败');
-        alert('代理与 Resin 配置已成功保存并即时生效！');
+        showToast('代理与 Resin 配置已保存并即时生效！', 'success');
         closeProxyModal();
         if (data.settings) updateProxyDisplayBadge(data.settings);
       } catch (err) {
-        alert('保存代理配置失败: ' + err.message);
+        showToast('保存代理配置失败: ' + err.message, 'error');
       } finally {
         btn.disabled = false;
       }
@@ -703,10 +752,10 @@
         if (!resp.ok) {
           throw new Error(data.detail || '自动建号失败');
         }
-        alert(data.message || '新账号已自动创建并成功存入号池！');
+        showToast(data.message || '新账号已自动创建并存入号池！', 'success');
         loadAccounts();
       } catch (err) {
-        alert('自动建号异常: ' + err.message);
+        showToast('自动建号异常: ' + err.message, 'error');
       } finally {
         btn.disabled = false;
         btn.innerHTML = '<i data-lucide=\"sparkles\" class=\"w-3.5 h-3.5\"></i><span>一键自动注册新号</span>';
@@ -774,7 +823,7 @@
               <td class="py-2.5 px-3 font-medium text-slate-900 dark:text-slate-100">${escapeHtml(t.name)}</td>
               <td class="py-2.5 px-3 font-mono text-[11px] text-slate-600 dark:text-slate-300">
                 <span class="bg-slate-100 dark:bg-slate-950 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-800">${escapeHtml(t.token.slice(0, 10))}...${escapeHtml(t.token.slice(-6))}</span>
-                <button onclick="navigator.clipboard.writeText('${escapeHtml(t.token)}'); alert('已复制完整令牌！');" class="ml-1 text-slate-400 hover:text-sky-500" title="复制完整Token">
+                <button onclick="navigator.clipboard.writeText('${escapeHtml(t.token)}'); showToast('已复制完整 API Key 密钥！', 'success');" class="ml-1 text-slate-400 hover:text-sky-500" title="复制完整Token">
                   <i data-lucide="copy" class="w-3 h-3 inline"></i>
                 </button>
               </td>
@@ -806,7 +855,7 @@
       const name = document.getElementById('new-token-name').value.trim();
       const val = document.getElementById('new-token-val').value.trim();
       if (!name) {
-        alert('请输入令牌名称 (如: Cherry Studio)');
+        showToast('请输入密钥名称 (如: Cherry Studio)', 'warning');
         return;
       }
       const btn = document.getElementById('btn-create-token');
@@ -829,7 +878,7 @@
           disp.innerText = data.token.token;
         }
       } catch (err) {
-        alert('创建令牌失败: ' + err.message);
+        showToast('创建密钥失败: ' + err.message, 'error');
       } finally {
         btn.disabled = false;
       }
@@ -845,7 +894,7 @@
         });
         if (resp.ok) loadTokens();
       } catch (err) {
-        alert('修改状态失败: ' + err.message);
+        showToast('修改状态失败: ' + err.message, 'error');
       }
     }
 
@@ -855,7 +904,7 @@
         const resp = await fetch(`/api/tokens/${id}`, { method: 'DELETE' });
         if (resp.ok) loadTokens();
       } catch (err) {
-        alert('删除失败: ' + err.message);
+        showToast('删除失败: ' + err.message, 'error');
       }
     }
 
@@ -876,7 +925,7 @@
           }
         }
       } catch (err) {
-        alert('切换策略失败: ' + err.message);
+        showToast('切换策略失败: ' + err.message, 'error');
       }
     }
 
@@ -1073,11 +1122,11 @@
       try {
         const resp = await fetch(`/api/accounts/${id}/test`, { method: 'POST' });
         const data = await resp.json();
-        alert(data.message || (data.success ? '测试成功！' : '测试失败'));
+        showToast(data.message || (data.success ? '测试连通性正常！' : '测试失败'), data.success ? 'success' : 'error');
         loadAccounts();
     loadProxySettings();
       } catch (err) {
-        alert('测试请求异常: ' + err.message);
+        showToast('测试请求异常: ' + err.message, 'error');
       }
     }
 
@@ -1085,11 +1134,11 @@
       try {
         const resp = await fetch(`/api/accounts/${id}/refresh`, { method: 'POST' });
         const data = await resp.json();
-        alert(data.message || '刷新完成');
+        showToast(data.message || '账号已成功刷新并轮换 Token', 'success');
         loadAccounts();
     loadProxySettings();
       } catch (err) {
-        alert('刷新请求异常: ' + err.message);
+        showToast('刷新请求异常: ' + err.message, 'error');
       }
     }
 
@@ -1100,7 +1149,7 @@
         loadAccounts();
     loadProxySettings();
       } catch (err) {
-        alert('解冻异常: ' + err.message);
+        showToast('解冻异常: ' + err.message, 'error');
       }
     }
 
@@ -1111,14 +1160,14 @@
         loadAccounts();
     loadProxySettings();
       } catch (err) {
-        alert('删除失败: ' + err.message);
+        showToast('删除失败: ' + err.message, 'error');
       }
     }
 
     function copyText(elementId) {
       const text = document.getElementById(elementId).innerText;
       navigator.clipboard.writeText(text).then(() => {
-        alert('已复制到剪贴板！');
+        showToast('已成功复制到剪贴板！', 'success');
       });
     }
 

@@ -14,19 +14,21 @@ class LibertAIException(Exception):
 
 def resolve_forward_proxy(account_email: Optional[str] = None) -> Optional[str]:
     """
-    Resolves forward proxy URL (Duck2api style: PROXY_URL=http://Default:TOKEN@resin:2260).
+    Resolves forward proxy URL (e.g. PROXY_URL=http://Default:TOKEN@resin:2260).
     If pointing to Resin with auth credentials (user:pass@host:port), dynamically injects
-    account email to satisfy Resin sticky forward proxy format: Platform.Account:TOKEN.
+    account email or a unique session tag to satisfy Resin sticky proxy format: Platform.Account:TOKEN.
     """
     if not config.PROXY_URL:
         return None
 
     try:
         parsed = urlparse(config.PROXY_URL)
-        if parsed.username and parsed.password and account_email:
+        if parsed.username and parsed.password:
             # If username doesn't already have an account attached (e.g. "Default")
             if "." not in parsed.username:
-                new_user = f"{parsed.username}.{quote_plus(account_email.strip())}"
+                import secrets
+                account_tag = quote_plus(account_email.strip()) if account_email else f"session_{secrets.token_hex(4)}"
+                new_user = f"{parsed.username}.{account_tag}"
                 netloc = f"{new_user}:{parsed.password}@{parsed.hostname}"
                 if parsed.port:
                     netloc += f":{parsed.port}"

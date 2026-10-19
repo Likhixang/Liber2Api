@@ -2,6 +2,7 @@ import asyncio
 import logging
 import re
 import secrets
+import time
 from typing import Any, Dict, List, Optional, Set
 import httpx
 from app.database import add_or_update_account, update_account_usage
@@ -9,10 +10,23 @@ from app.libertai_client import LibertAIClient, resolve_forward_proxy
 
 logger = logging.getLogger("liber2api.auto_register")
 
-# In-memory blacklist of domains rejected by LibertAI
-REJECTED_DOMAINS: Set[str] = {
-    "maxxspace.com",
+# In-memory blacklist of domains rejected by LibertAI with 3-minute TTL
+REJECTED_DOMAINS: Dict[str, float] = {
+    "maxxspace.com": time.time() + 3600,  # known permanent block
 }
+
+
+def is_domain_rejected(domain: str) -> bool:
+    if domain in REJECTED_DOMAINS:
+        if time.time() < REJECTED_DOMAINS[domain]:
+            return True
+        else:
+            del REJECTED_DOMAINS[domain]
+    return False
+
+
+def mark_domain_rejected(domain: str, ttl_seconds: int = 180):
+    REJECTED_DOMAINS[domain] = time.time() + ttl_seconds
 
 
 class TempMailRegistrar:
@@ -45,7 +59,7 @@ class TempMailRegistrar:
 
             email = r_gen.json()["email"]["address"]
             domain = email.split("@")[-1]
-            if domain in REJECTED_DOMAINS:
+            if is_domain_rejected(domain):
                 return None
 
             # Request login OTP from LibertAI
@@ -90,7 +104,7 @@ class TempMailRegistrar:
                                     }
                             elif r_v.status_code == 403 and "domain" in r_v.text.lower():
                                 logger.info("LibertAI rejected domain %s, blacklisting", domain)
-                                REJECTED_DOMAINS.add(domain)
+                                mark_domain_rejected(domain)
                                 return None
         except Exception as e:
             logger.debug("TempMail.ing attempt error: %s", e)
@@ -107,7 +121,7 @@ class TempMailRegistrar:
 
             email = r_create.json()["data"]["email"]
             domain = email.split("@")[-1]
-            if domain in REJECTED_DOMAINS:
+            if is_domain_rejected(domain):
                 return None
 
             r_lib = await client.post(
@@ -149,7 +163,7 @@ class TempMailRegistrar:
                                     }
                             elif r_v.status_code == 403 and "domain" in r_v.text.lower():
                                 logger.info("LibertAI rejected domain %s, blacklisting", domain)
-                                REJECTED_DOMAINS.add(domain)
+                                mark_domain_rejected(domain)
                                 return None
         except Exception as e:
             logger.debug("MTempMail attempt error: %s", e)
