@@ -17,10 +17,18 @@
 ## ✨ 核心特性
 
 - 🛠 **原生支持 Function Calling (Tools)**：底层对接官方 vLLM 引擎，无论是流式（Stream）还是非流式，均 100% 原生支持 OpenAI 工具调用格式，完美适配各类 Agent（如 Claude Code, Cline, Dify, LangChain 等）。
+- 🧠 **智能模型合并与思考等级路由**：
+  - `/v1/models` 自动智能合并 `-tee` 和 `-thinking` 等冗余后缀，提供简洁统一的模型列表。
+  - 智能感知客户端参数：根据 `reasoning_effort` 自动路由思考强度（`none` 调度基础模型，`low` / `medium` / `high` / `max` 自动路由至对应 thinking 增强版）。
+  - 支持 TEE 安全隔离（硬件安全飞地）：支持先处理 `tee` 再处理 `thinking`，智能拼装如 `qwen3.8-27b-tee-thinking`。
+- 🔑 **多 API 令牌管理 (Multi-Token)**：
+  - 原生支持多令牌持久化管理，重启容器绝不丢失，支持独立命名、单独启停、调用计数统计。
+  - 支持一键切换全局免密模式或强制多令牌鉴权。
 - 🎨 **自适应亮暗与系统跟随主题**：支持深色（Dark）、浅色（Light）与跟随系统（System）无缝切换，界面现代且舒适，已全面消除浅色下的深色块。
-- 🔑 **Web 端 API Key 动态策略管理**：无需重启容器，直接在 Web 控制台随时开关强鉴权、设置自定义 Key 或一键生成高强度密钥，即时生效。
-- 🔐 **WebUI 密码安全锁屏门禁**：支持配置 `ADMIN_PASSWORD`，未认证访问强制拦截在登录页，完全保护号池信息与管理接口。
-- 🌐 **原生支持 Resin 粘滞代理网关**：遵循 Resin 粘性代理规范，配置 `RESIN_URL` 后自动将账号请求反向代理并通过 `X-Resin-Account` 锚定出口 IP，避免频繁漂移导致风控。
+- 🌐 **双模式代理支持（Duck2api 风格 & Resin 粘性网关）**：
+  - **Duck2api 正向代理模式**：直接配置 `PROXY_URL=http://Default:TOKEN@resin:2260` 或通用 HTTP/SOCKS 代理，自动支持 Resin 动态账号粘滞。
+  - **Resin 反向网关模式**：配置 `RESIN_URL=http://127.0.0.1:2260/my-token`，通过 `X-Resin-Account` 头锚定出口 IP，避免风控。
+- 🔐 **WebUI 密码安全锁屏门禁与免重登体验**：支持配置 `ADMIN_PASSWORD`，未认证访问强制拦截在登录页，新标签页自动维持认证态，无需每次重复输入。
 - ✉️ **极简两步向导人工录入**：拒绝脆弱易封号的批量接码爬虫。在 WebUI 中「输邮箱 ➔ 收 6 位验证码 ➔ 提交入库」，15 秒即可绑定一个真实有效账号。
 - 🔄 **官方规范 Token 自动轮转保活**：基于 LibertAI 原生 `Token Rotation` 规范，后台定时自动刷新 `refresh_token` 并更新 `chatApiKey`，**一次录入，长期无感持久保活**。
 - 🛡 **429 自动冷却与无缝故障转移 (Failover)**：
@@ -153,8 +161,9 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 | `HOST` | `0.0.0.0` | 服务绑定地址 |
 | `DATA_DIR` | `/app/data` | 数据持久化目录（存储 SQLite 数据库） |
 | `ADMIN_PASSWORD` | `""` (留空) | WebUI 管理密码。设置后 Web 页面与管理 API 均需要登录认证 |
-| `API_KEY` | `""` (留空) | 下游客户端请求 2API 必须提供的 Key；留空则任何人均可直接调用 |
-| `RESIN_URL` | `""` (留空) | Resin 外部粘性代理网关地址（如 `http://127.0.0.1:2260/token`）；留空则直连 |
+| `API_KEY` | `""` (留空) | 初始系统 API Key；建议直接在 WebUI 多令牌管理中持久化添加 |
+| `PROXY_URL` | `""` (留空) | 正向代理地址（支持 Duck2api 风格 `http://Default:TOKEN@resin:2260` 或通用代理） |
+| `RESIN_URL` | `""` (留空) | Resin 外部粘性反代网关地址（如 `http://127.0.0.1:2260/token`）；留空则直连 |
 | `RESIN_PLATFORM_NAME` | `Default` | Resin 平台名称，用于多出口节点筛选 |
 | `COOLDOWN_HOURS` | `5` | 单个账号触发 429 后的冷却时长（小时） |
 | `AUTO_REFRESH_INTERVAL` | `43200` | 后台定时保活刷新 Token 的周期（秒，默认 12 小时） |

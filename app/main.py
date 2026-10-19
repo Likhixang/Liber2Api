@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import json
 import logging
+import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -15,14 +16,20 @@ from pydantic import BaseModel, Field
 import app.config as config
 from app.database import (
     add_or_update_account,
+    create_api_token,
     delete_account,
+    delete_api_token,
     get_all_accounts,
+    get_all_api_tokens,
     get_pool_summary,
     get_setting,
     init_db,
     set_setting,
+    update_api_token_status,
+    validate_and_record_token,
 )
 from app.libertai_client import LibertAIClient, LibertAIException
+from app.model_resolver import canonicalize_models_list, resolve_upstream_model
 from app.pool_manager import pool_manager
 
 # Configure logging
@@ -56,7 +63,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Liber2Api",
-    version="1.2.1",
+    version="1.3.0",
     description="High-availability OpenAI-compatible 2API proxy with account pool management for LibertAI.",
     lifespan=lifespan,
 )
@@ -71,43 +78,48 @@ app.add_middleware(
 )
 
 
-# Dynamic API Key resolution (DB setting overrides environment variable)
-async def get_effective_api_key_config():
-    """
-    Returns (enabled: bool, api_key: str).
-    Database setting takes precedence over config.API_KEY.
-    """
+# Security Dependency for 2API endpoints (Supports Multi-Token Pool)
+async def verify_api_key(authorization: Optional[str] = Header(None)) -> bool:
     db_enabled = await get_setting("api_key_enabled")
-    db_key = await get_setting("api_key")
-
+    enabled = True
     if db_enabled is not None:
         enabled = db_enabled.lower() == "true"
-        key = db_key or ""
-        return enabled, key
+    elif not config.API_KEY:
+        enabled = False
 
-    # Fallback to environment variable
-    if config.API_KEY:
-        return True, config.API_KEY
-    return False, ""
-
-
-# Security Dependency for 2API endpoints
-async def verify_api_key(authorization: Optional[str] = Header(None)) -> bool:
-    enabled, valid_key = await get_effective_api_key_config()
-    if not enabled or not valid_key:
+    if not enabled:
         return True
+
     if not authorization:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing Authorization header",
         )
     parts = authorization.split()
-    if len(parts) != 2 or parts[0].lower() != "bearer" or parts[1] != valid_key:
+    if len(parts) != 2 or parts[0].lower() != "bearer":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid API key",
+            detail="Invalid Authorization header format",
         )
-    return True
+    token_val = parts[1].strip()
+
+    # 1. Check multi-token pool in database
+    if await validate_and_record_token(token_val):
+        return True
+
+    # 2. Check fallback environment key
+    if config.API_KEY and hmac.compare_digest(token_val, config.API_KEY):
+        return True
+
+    # 3. Check legacy single key in settings table
+    db_key = await get_setting("api_key")
+    if db_key and hmac.compare_digest(token_val, db_key):
+        return True
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid API key",
+    )
 
 
 # Helper to check if current request has valid admin credentials
@@ -159,16 +171,17 @@ async def admin_login(req: AdminLoginRequest, response: Response):
     response.set_cookie(
         key="liber2api_session",
         value=session_token,
+        path="/",
         httponly=True,
         samesite="lax",
         max_age=86400 * 30,  # 30 days
     )
-    return {"success": True, "message": "登录成功"}
+    return {"success": True, "message": "登录成功", "token": session_token}
 
 
 @app.post("/api/admin/logout")
 async def admin_logout(response: Response):
-    response.delete_cookie("liber2api_session")
+    response.delete_cookie("liber2api_session", path="/")
     return {"success": True, "message": "已退出登录"}
 
 
@@ -184,27 +197,61 @@ async def admin_status(
     }
 
 
-class ApiKeySettingRequest(BaseModel):
+class CreateTokenRequest(BaseModel):
+    name: str = Field(..., min_length=1)
+    token: Optional[str] = None
+
+
+class UpdateTokenStatusRequest(BaseModel):
+    status: str = Field(..., pattern="^(active|disabled)$")
+
+
+class AuthPolicyRequest(BaseModel):
     enabled: bool
-    api_key: str = ""
 
 
-@app.get("/api/settings/api-key")
-async def api_get_api_key_setting(_admin: bool = Depends(verify_admin)):
-    enabled, key = await get_effective_api_key_config()
-    return {"enabled": enabled, "api_key": key}
+@app.get("/api/tokens")
+async def api_list_tokens(_admin: bool = Depends(verify_admin)):
+    tokens = await get_all_api_tokens()
+    db_enabled = await get_setting("api_key_enabled")
+    auth_enabled = (db_enabled.lower() == "true") if db_enabled is not None else bool(config.API_KEY)
+    return {"tokens": tokens, "auth_enabled": auth_enabled}
 
 
-@app.post("/api/settings/api-key")
-async def api_set_api_key_setting(req: ApiKeySettingRequest, _admin: bool = Depends(verify_admin)):
+@app.post("/api/tokens")
+async def api_create_token(req: CreateTokenRequest, _admin: bool = Depends(verify_admin)):
+    token_val = req.token.strip() if req.token and req.token.strip() else f"sk-liber2api-{secrets.token_hex(16)}"
+    new_tok = await create_api_token(name=req.name.strip(), token=token_val)
+    return {"success": True, "message": "令牌创建成功", "token": new_tok}
+
+
+@app.patch("/api/tokens/{token_id}/status")
+async def api_update_token_status(token_id: int, req: UpdateTokenStatusRequest, _admin: bool = Depends(verify_admin)):
+    success = await update_api_token_status(token_id, req.status)
+    if not success:
+        raise HTTPException(status_code=404, detail="Token not found")
+    return {"success": True, "message": "令牌状态已更新"}
+
+
+@app.delete("/api/tokens/{token_id}")
+async def api_delete_token(token_id: int, _admin: bool = Depends(verify_admin)):
+    success = await delete_api_token(token_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Token not found")
+    return {"success": True, "message": "令牌已删除"}
+
+
+@app.get("/api/settings/auth-policy")
+async def api_get_auth_policy(_admin: bool = Depends(verify_admin)):
+    db_enabled = await get_setting("api_key_enabled")
+    enabled = (db_enabled.lower() == "true") if db_enabled is not None else bool(config.API_KEY)
+    return {"auth_enabled": enabled}
+
+
+@app.post("/api/settings/auth-policy")
+async def api_set_auth_policy(req: AuthPolicyRequest, _admin: bool = Depends(verify_admin)):
     await set_setting("api_key_enabled", "true" if req.enabled else "false")
-    await set_setting("api_key", req.api_key.strip())
-    return {
-        "success": True,
-        "message": "API Key 策略已更新并实时生效",
-        "enabled": req.enabled,
-        "api_key": req.api_key.strip(),
-    }
+    return {"success": True, "auth_enabled": req.enabled, "message": "全局鉴权策略已更新"}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -213,13 +260,18 @@ async def serve_index(
     liber2api_session: Optional[str] = Cookie(None),
 ):
     authenticated = is_admin_authenticated(liber2api_session=liber2api_session)
-    enabled, key = await get_effective_api_key_config()
+    db_enabled = await get_setting("api_key_enabled")
+    auth_enabled = (db_enabled.lower() == "true") if db_enabled is not None else bool(config.API_KEY)
+    tokens = await get_all_api_tokens()
+    active_tokens = [t["token"] for t in tokens if t["status"] == "active"]
+    primary_token = active_tokens[0] if active_tokens else (config.API_KEY or "")
+
     return templates.TemplateResponse(
         request=request,
         name="index.html",
         context={
-            "api_key": key if enabled else "",
-            "api_key_enabled": enabled,
+            "api_key": primary_token if auth_enabled else "",
+            "api_key_enabled": auth_enabled,
             "has_admin_pass": bool(config.ADMIN_PASSWORD),
             "is_authenticated": authenticated,
         },
@@ -335,29 +387,28 @@ async def api_delete_account(account_id: int, _admin: bool = Depends(verify_admi
 async def get_models(_auth: bool = Depends(verify_api_key)):
     client = LibertAIClient()
     try:
-        data = await client.list_models()
-        return data
+        raw_data = await client.list_models()
+        models = raw_data.get("data", [])
     except Exception as e:
         logger.warning("Failed to proxy models from upstream: %s", e)
         # Fallback list of known models
-        return {
-            "object": "list",
-            "data": [
-                {"id": "qwen3.6-35b-a3b", "object": "model", "owned_by": "libertai"},
-                {"id": "qwen3.6-35b-a3b-thinking", "object": "model", "owned_by": "libertai"},
-                {"id": "qwen3.8-27b", "object": "model", "owned_by": "libertai"},
-                {"id": "qwen3.8-27b-thinking", "object": "model", "owned_by": "libertai"},
-                {"id": "glm-5.3", "object": "model", "owned_by": "libertai"},
-                {"id": "glm-5.3-thinking", "object": "model", "owned_by": "libertai"},
-                {"id": "glm-5.3-flash", "object": "model", "owned_by": "libertai"},
-                {"id": "glm-5.3-flash-thinking", "object": "model", "owned_by": "libertai"},
-                {"id": "deepseek-v4.1-flash", "object": "model", "owned_by": "libertai"},
-                {"id": "deepseek-v4.1-flash-thinking", "object": "model", "owned_by": "libertai"},
-                {"id": "deepseek-v4.1-flash-1017-thinking", "object": "model", "owned_by": "libertai"},
-                {"id": "qwen3.5-122b-a10b", "object": "model", "owned_by": "libertai"},
-                {"id": "hermes-3-8b-tee", "object": "model", "owned_by": "libertai"},
-            ],
-        }
+        models = [
+            {"id": "qwen3.6-35b-a3b", "object": "model", "owned_by": "libertai"},
+            {"id": "qwen3.6-35b-a3b-thinking", "object": "model", "owned_by": "libertai"},
+            {"id": "qwen3.8-27b", "object": "model", "owned_by": "libertai"},
+            {"id": "qwen3.8-27b-thinking", "object": "model", "owned_by": "libertai"},
+            {"id": "glm-5.3", "object": "model", "owned_by": "libertai"},
+            {"id": "glm-5.3-thinking", "object": "model", "owned_by": "libertai"},
+            {"id": "glm-5.3-flash", "object": "model", "owned_by": "libertai"},
+            {"id": "glm-5.3-flash-thinking", "object": "model", "owned_by": "libertai"},
+            {"id": "deepseek-v4.1-flash", "object": "model", "owned_by": "libertai"},
+            {"id": "deepseek-v4.1-flash-thinking", "object": "model", "owned_by": "libertai"},
+            {"id": "deepseek-v4.1-flash-1017-thinking", "object": "model", "owned_by": "libertai"},
+            {"id": "qwen3.5-122b-a10b", "object": "model", "owned_by": "libertai"},
+            {"id": "hermes-3-8b-tee", "object": "model", "owned_by": "libertai"},
+        ]
+    canonical_list = canonicalize_models_list(models)
+    return {"object": "list", "data": canonical_list}
 
 
 @app.post("/v1/chat/completions")
@@ -366,6 +417,13 @@ async def chat_completions(request: Request, _auth: bool = Depends(verify_api_ke
         body: Dict[str, Any] = await request.json()
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+    # Intelligently resolve model with reasoning_effort and tee options
+    requested_model = body.get("model", "")
+    headers_dict = {k.lower(): v for k, v in request.headers.items()}
+    upstream_model = resolve_upstream_model(requested_model, payload=body, headers=headers_dict)
+    body["model"] = upstream_model
+    logger.info("Routing completion: client model '%s' -> upstream model '%s'", requested_model, upstream_model)
 
     stream = bool(body.get("stream", False))
     client = LibertAIClient()

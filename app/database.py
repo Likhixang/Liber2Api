@@ -46,7 +46,35 @@ async def init_db() -> None:
             )
             """
         )
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS api_tokens (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                token TEXT UNIQUE NOT NULL,
+                status TEXT NOT NULL DEFAULT 'active',
+                created_at TEXT NOT NULL,
+                last_used_at TEXT NULL,
+                total_requests INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
         await db.commit()
+
+        # Migrate existing single api_key from settings table if present
+        cursor = await db.execute("SELECT value FROM settings WHERE key = 'api_key'")
+        row = await cursor.fetchone()
+        if row and row[0]:
+            legacy_key = row[0].strip()
+            if legacy_key:
+                c2 = await db.execute("SELECT id FROM api_tokens WHERE token = ?", (legacy_key,))
+                if not await c2.fetchone():
+                    now = _utc_now_str()
+                    await db.execute(
+                        "INSERT INTO api_tokens (name, token, status, created_at) VALUES (?, ?, 'active', ?)",
+                        ("默认令牌", legacy_key, now),
+                    )
+                    await db.commit()
 
 
 async def add_or_update_account(
@@ -296,3 +324,69 @@ async def set_setting(key: str, value: str) -> None:
             (key, value),
         )
         await db.commit()
+
+
+# ---------------------------------------------------------
+# Multi-Token Management
+# ---------------------------------------------------------
+
+async def create_api_token(name: str, token: str) -> Dict[str, Any]:
+    now = _utc_now_str()
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        await db.execute(
+            """
+            INSERT INTO api_tokens (name, token, status, created_at)
+            VALUES (?, ?, 'active', ?)
+            """,
+            (name.strip(), token.strip(), now),
+        )
+        await db.commit()
+        cursor = await db.execute("SELECT * FROM api_tokens WHERE token = ?", (token.strip(),))
+        row = await cursor.fetchone()
+        return dict(row) if row else {}
+
+
+async def get_all_api_tokens() -> List[Dict[str, Any]]:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT * FROM api_tokens ORDER BY id DESC")
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+
+
+async def update_api_token_status(token_id: int, status: str) -> bool:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cursor = await db.execute("UPDATE api_tokens SET status = ? WHERE id = ?", (status, token_id))
+        await db.commit()
+        return cursor.rowcount > 0
+
+
+async def delete_api_token(token_id: int) -> bool:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cursor = await db.execute("DELETE FROM api_tokens WHERE id = ?", (token_id,))
+        await db.commit()
+        return cursor.rowcount > 0
+
+
+async def validate_and_record_token(token_str: str) -> bool:
+    now = _utc_now_str()
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cursor = await db.execute(
+            "SELECT id FROM api_tokens WHERE token = ? AND status = 'active'",
+            (token_str.strip(),),
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return False
+        token_id = row[0]
+        await db.execute(
+            """
+            UPDATE api_tokens
+            SET total_requests = total_requests + 1, last_used_at = ?
+            WHERE id = ?
+            """,
+            (now, token_id),
+        )
+        await db.commit()
+        return True

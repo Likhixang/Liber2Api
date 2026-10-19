@@ -42,8 +42,10 @@ SESSION_SECRET = _load_or_create_session_secret()
 # If set, downstream clients accessing /v1/chat/completions require Bearer <API_KEY>
 API_KEY = os.getenv("API_KEY", "")
 
-# Resin Sticky Proxy Gateway Integration
-# e.g. "http://127.0.0.1:2260/my-token"
+# Forward Proxy (Duck2api style: e.g. "http://Default:TOKEN@resin:2260" or "http://127.0.0.1:7890")
+PROXY_URL = os.getenv("PROXY_URL", os.getenv("HTTP_PROXY", os.getenv("http_proxy", ""))).strip()
+
+# Resin Sticky Proxy Gateway Integration (Reverse proxy style: e.g. "http://127.0.0.1:2260/my-token")
 RESIN_URL = os.getenv("RESIN_URL", "").rstrip("/")
 RESIN_PLATFORM_NAME = os.getenv("RESIN_PLATFORM_NAME", "Default").strip()
 

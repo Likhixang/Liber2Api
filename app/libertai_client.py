@@ -1,4 +1,4 @@
-from urllib.parse import urlparse
+from urllib.parse import quote_plus, urlparse, urlunparse
 import httpx
 from typing import Any, AsyncGenerator, Dict, Optional, Tuple
 import app.config as config
@@ -9,6 +9,31 @@ class LibertAIException(Exception):
         super().__init__(message)
         self.status_code = status_code
         self.detail = detail
+
+
+def resolve_forward_proxy(account_email: Optional[str] = None) -> Optional[str]:
+    """
+    Resolves forward proxy URL (Duck2api style: PROXY_URL=http://Default:TOKEN@resin:2260).
+    If pointing to Resin with auth credentials (user:pass@host:port), dynamically injects
+    account email to satisfy Resin sticky forward proxy format: Platform.Account:TOKEN.
+    """
+    if not config.PROXY_URL:
+        return None
+
+    try:
+        parsed = urlparse(config.PROXY_URL)
+        if parsed.username and parsed.password and account_email:
+            # If username doesn't already have an account attached (e.g. "Default")
+            if "." not in parsed.username:
+                new_user = f"{parsed.username}.{quote_plus(account_email.strip())}"
+                netloc = f"{new_user}:{parsed.password}@{parsed.hostname}"
+                if parsed.port:
+                    netloc += f":{parsed.port}"
+                return urlunparse((parsed.scheme, netloc, parsed.path, parsed.params, parsed.query, parsed.fragment))
+    except Exception:
+        pass
+
+    return config.PROXY_URL
 
 
 def resolve_request_endpoint(
@@ -58,6 +83,10 @@ class LibertAIClient:
         self.api_base = (api_base or config.LIBERTAI_API_URL).rstrip("/")
         self.timeout = config.REQUEST_TIMEOUT
 
+    def _get_client(self, account_email: Optional[str] = None) -> httpx.AsyncClient:
+        proxy = resolve_forward_proxy(account_email)
+        return httpx.AsyncClient(timeout=self.timeout, proxy=proxy)
+
     async def send_login_email(self, email: str) -> bool:
         """
         Trigger LibertAI to send a 6-digit verification code to the given email.
@@ -70,7 +99,7 @@ class LibertAIClient:
             "email": email.strip(),
             "redirect_base": "https://chat.libertai.io",
         }
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with self._get_client(account_email=email) as client:
             resp = await client.post(url, json=payload, headers=headers)
             if resp.status_code not in (200, 204):
                 error_msg = resp.text
@@ -98,7 +127,7 @@ class LibertAIClient:
             "email": email.strip(),
             "code": code.strip(),
         }
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with self._get_client(account_email=email) as client:
             resp = await client.post(url, json=payload, headers=headers)
             if resp.status_code != 200:
                 error_msg = resp.text
@@ -127,7 +156,7 @@ class LibertAIClient:
         target_url = f"{self.inference_base}/api-keys/chat"
         headers_in = {"Authorization": f"Bearer {access_token}"}
         url, headers = resolve_request_endpoint(target_url, account_email=account_email, extra_headers=headers_in)
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with self._get_client(account_email=account_email) as client:
             resp = await client.get(url, headers=headers)
             if resp.status_code != 200:
                 error_msg = resp.text
@@ -156,7 +185,7 @@ class LibertAIClient:
         headers_in = {"Content-Type": "application/json"}
         url, headers = resolve_request_endpoint(target_url, account_email=account_email, extra_headers=headers_in)
         payload = {"refresh_token": refresh_token}
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with self._get_client(account_email=account_email) as client:
             resp = await client.post(url, json=payload, headers=headers)
             if resp.status_code != 200:
                 error_msg = resp.text
@@ -185,7 +214,7 @@ class LibertAIClient:
         target_url = f"{self.inference_base}/payments/subscription"
         headers_in = {"Authorization": f"Bearer {access_token}"}
         url, headers = resolve_request_endpoint(target_url, account_email=account_email, extra_headers=headers_in)
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with self._get_client(account_email=account_email) as client:
             resp = await client.get(url, headers=headers)
             if resp.status_code != 200:
                 return {}
@@ -198,7 +227,7 @@ class LibertAIClient:
         """
         target_url = f"{self.api_base}/models"
         url, headers = resolve_request_endpoint(target_url)
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with self._get_client() as client:
             resp = await client.get(url, headers=headers)
             if resp.status_code != 200:
                 raise LibertAIException(
@@ -220,7 +249,7 @@ class LibertAIClient:
             "Authorization": f"Bearer {chat_api_key}",
         }
         url, headers = resolve_request_endpoint(target_url, account_email=account_email, extra_headers=headers_in)
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with self._get_client(account_email=account_email) as client:
             resp = await client.post(url, json=payload, headers=headers)
             try:
                 body = resp.json()
@@ -241,7 +270,7 @@ class LibertAIClient:
             "Authorization": f"Bearer {chat_api_key}",
         }
         url, headers = resolve_request_endpoint(target_url, account_email=account_email, extra_headers=headers_in)
-        client = httpx.AsyncClient(timeout=self.timeout)
+        client = self._get_client(account_email=account_email)
         req = client.build_request("POST", url, json=payload, headers=headers)
         resp = await client.send(req, stream=True)
 

@@ -194,46 +194,119 @@ def test_resin_sticky_resolution():
 
 
 @pytest.mark.asyncio
-async def test_api_key_settings_management():
+async def test_multi_token_management():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        # 1. Initially disabled or default
-        resp = await client.get("/api/settings/api-key")
+        # 1. Enable auth policy
+        resp = await client.post("/api/settings/auth-policy", json={"enabled": True})
         assert resp.status_code == 200
 
-        # 2. Update API key setting to enabled with custom key
-        resp = await client.post(
-            "/api/settings/api-key",
-            json={"enabled": True, "api_key": "sk-custom-test-12345"},
-        )
-        assert resp.status_code == 200
-        assert resp.json()["success"] is True
+        # 2. Create Token A and Token B
+        resp_a = await client.post("/api/tokens", json={"name": "Client A", "token": "sk-token-a-1111"})
+        assert resp_a.status_code == 200
+        tok_a_id = resp_a.json()["token"]["id"]
 
-        # 3. Requesting chat/completions without key should return 401
+        resp_b = await client.post("/api/tokens", json={"name": "Client B", "token": "sk-token-b-2222"})
+        assert resp_b.status_code == 200
+        tok_b_id = resp_b.json()["token"]["id"]
+
+        # 3. Request with Token A should pass auth check (will return 503 if pool is empty, but not 401)
         resp = await client.post(
             "/v1/chat/completions",
+            headers={"Authorization": "Bearer sk-token-a-1111"},
+            json={"model": "qwen3.6-35b-a3b", "messages": [{"role": "user", "content": "hi"}]},
+        )
+        assert resp.status_code != 401
+
+        # 4. Disable Token A
+        resp = await client.patch(f"/api/tokens/{tok_a_id}/status", json={"status": "disabled"})
+        assert resp.status_code == 200
+
+        # Now Token A should get 401, while Token B still works
+        resp = await client.post(
+            "/v1/chat/completions",
+            headers={"Authorization": "Bearer sk-token-a-1111"},
             json={"model": "qwen3.6-35b-a3b", "messages": [{"role": "user", "content": "hi"}]},
         )
         assert resp.status_code == 401
 
-        # 4. Requesting with wrong key should return 401
         resp = await client.post(
             "/v1/chat/completions",
-            headers={"Authorization": "Bearer sk-wrong-key"},
+            headers={"Authorization": "Bearer sk-token-b-2222"},
+            json={"model": "qwen3.6-35b-a3b", "messages": [{"role": "user", "content": "hi"}]},
+        )
+        assert resp.status_code != 401
+
+        # 5. Delete Token B
+        resp = await client.delete(f"/api/tokens/{tok_b_id}")
+        assert resp.status_code == 200
+
+        # Now Token B should also get 401
+        resp = await client.post(
+            "/v1/chat/completions",
+            headers={"Authorization": "Bearer sk-token-b-2222"},
             json={"model": "qwen3.6-35b-a3b", "messages": [{"role": "user", "content": "hi"}]},
         )
         assert resp.status_code == 401
 
-        # 5. Disable API key policy
-        resp = await client.post(
-            "/api/settings/api-key",
-            json={"enabled": False, "api_key": ""},
-        )
+        # 6. Disable auth policy -> Anyone can call
+        resp = await client.post("/api/settings/auth-policy", json={"enabled": False})
         assert resp.status_code == 200
 
-        # Now completions should bypass key check (will reach account pool, returning 503 if pool empty)
         resp = await client.post(
             "/v1/chat/completions",
             json={"model": "qwen3.6-35b-a3b", "messages": [{"role": "user", "content": "hi"}]},
         )
         assert resp.status_code != 401
+
+
+def test_model_resolver_and_canonicalization():
+    from app.model_resolver import canonicalize_models_list, resolve_upstream_model
+
+    # 1. Test canonicalize list merges -thinking and -tee
+    raw_models = [
+        {"id": "qwen3.8-27b"},
+        {"id": "qwen3.8-27b-thinking"},
+        {"id": "qwen3.8-27b-tee"},
+        {"id": "qwen3.8-27b-tee-thinking"},
+        {"id": "deepseek-v4.1-flash"},
+        {"id": "deepseek-v4.1-flash-thinking"},
+        {"id": "hermes-3-8b-tee"},
+    ]
+    canonical = canonicalize_models_list(raw_models)
+    canonical_ids = [m["id"] for m in canonical]
+    assert canonical_ids == ["qwen3.8-27b", "deepseek-v4.1-flash", "hermes-3-8b"]
+
+    # 2. Test resolve_upstream_model
+    # Case A: Base model with reasoning_effort=high -> thinking
+    assert resolve_upstream_model("deepseek-v4.1-flash", {"reasoning_effort": "high"}) == "deepseek-v4.1-flash-thinking"
+
+    # Case B: Base model with reasoning_effort=none -> base model
+    assert resolve_upstream_model("deepseek-v4.1-flash-thinking", {"reasoning_effort": "none"}) == "deepseek-v4.1-flash"
+
+    # Case C: Model with tee=true
+    assert resolve_upstream_model("qwen3.8-27b", {"tee": True}) == "qwen3.8-27b-tee"
+
+    # Case D: Model with tee=true and reasoning_effort=max -> FIRST tee THEN thinking
+    assert resolve_upstream_model("qwen3.8-27b", {"tee": True, "reasoning_effort": "max"}) == "qwen3.8-27b-tee-thinking"
+
+    # Case E: Model that is only TEE upstream (hermes-3-8b)
+    assert resolve_upstream_model("hermes-3-8b") == "hermes-3-8b-tee"
+
+
+def test_duck2api_proxy_url_resolution():
+    from app.libertai_client import resolve_forward_proxy
+
+    orig = config.PROXY_URL
+    try:
+        # Resin proxy style with auth credentials
+        config.PROXY_URL = "http://Default:my_secret_token@resin:2260"
+        proxy = resolve_forward_proxy("user_tom@example.com")
+        assert proxy == "http://Default.user_tom%40example.com:my_secret_token@resin:2260"
+
+        # General proxy without credentials
+        config.PROXY_URL = "http://127.0.0.1:7890"
+        proxy_gen = resolve_forward_proxy("user_tom@example.com")
+        assert proxy_gen == "http://127.0.0.1:7890"
+    finally:
+        config.PROXY_URL = orig
