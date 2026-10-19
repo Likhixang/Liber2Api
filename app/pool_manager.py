@@ -212,8 +212,25 @@ class PoolManager:
         """
         Periodic worker:
         1. Checks for accounts with expired cooldowns and restores them to active.
-        2. Proactively refreshes tokens for accounts that haven't been updated recently.
+        2. Every 5 minutes (300s): Performs health probe on all accounts; purges failed accounts.
+        3. Every 5 minutes (300s): Auto-replenishes 3 accounts if active count < 100.
+        4. Proactively refreshes tokens for accounts that haven't been updated recently.
         """
+        # Initial startup replenishment if active count < 3
+        try:
+            initial_active = await get_active_accounts()
+            if len(initial_active) < 3:
+                logger.info("Initial startup: active accounts (%d < 3), creating batch to ensure minimum 3 accounts...", len(initial_active))
+                from app.auto_register import registrar
+                for i in range(3 - len(initial_active)):
+                    try:
+                        await registrar.register_account()
+                        await asyncio.sleep(2)
+                    except Exception as e:
+                        logger.error("Initial registration failed: %s", e)
+        except Exception as e:
+            logger.error("Startup replenishment error: %s", e)
+
         check_interval = 60  # Cooldown check loop: every 60s
         health_check_tick = 0  # Health check & replenishment interval: every 300s (5 min)
         refresh_tick = 0
