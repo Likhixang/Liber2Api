@@ -1,6 +1,7 @@
 import aiosqlite
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+import app.config as config
 from app.config import DATABASE_PATH
 
 
@@ -75,6 +76,13 @@ async def init_db() -> None:
                         ("默认令牌", legacy_key, now),
                     )
                     await db.commit()
+
+        # Check if usage_info column exists in accounts table
+        c_info = await db.execute("PRAGMA table_info(accounts)")
+        columns = [r[1] for r in await c_info.fetchall()]
+        if "usage_info" not in columns:
+            await db.execute("ALTER TABLE accounts ADD COLUMN usage_info TEXT NULL")
+            await db.commit()
 
 
 async def add_or_update_account(
@@ -305,6 +313,35 @@ async def get_pool_summary() -> Dict[str, Any]:
             "failed_requests": failed_reqs,
             "success_rate": success_rate,
         }
+
+
+async def update_account_usage(account_id: int, usage_info: str) -> None:
+    now = _utc_now_str()
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            """
+            UPDATE accounts
+            SET usage_info = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (usage_info, now, account_id),
+        )
+        await db.commit()
+
+
+async def get_effective_proxy_settings() -> Dict[str, str]:
+    """
+    Returns effective proxy settings, prioritizing SQLite 'settings' table over environment variables.
+    """
+    db_proxy = await get_setting("proxy_url")
+    db_resin = await get_setting("resin_url")
+    db_platform = await get_setting("resin_platform_name")
+
+    return {
+        "proxy_url": db_proxy if db_proxy is not None else config.PROXY_URL,
+        "resin_url": db_resin if db_resin is not None else config.RESIN_URL,
+        "resin_platform_name": db_platform if db_platform is not None else config.RESIN_PLATFORM_NAME,
+    }
 
 
 async def get_setting(key: str, default: Optional[str] = None) -> Optional[str]:

@@ -371,3 +371,44 @@ async def test_stream_reasoning_normalizer():
     assert "Thought" in out_text
     assert "reasoning_content" in out_text
     assert "data: [DONE]" in out_text
+
+    # 6. Test embedded <think>...</think> extraction from content
+    normalizer2 = StreamReasoningNormalizer()
+    chunk_think = {"choices": [{"delta": {"content": "<think>planning steps</think>final answer"}}]}
+    res_think = normalizer2.process_chunk_dict(chunk_think)
+    assert len(res_think) == 2
+    assert res_think[0]["choices"][0]["delta"]["reasoning"] == "planning steps"
+    assert res_think[0]["choices"][0]["delta"]["reasoning_content"] == "planning steps"
+    assert res_think[1]["choices"][0]["delta"]["content"] == "final answer"
+
+
+@pytest.mark.asyncio
+async def test_proxy_settings_api():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # GET proxy settings
+        resp = await client.get("/api/settings/proxy")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "proxy_url" in data
+        assert "resin_url" in data
+
+        # POST proxy settings
+        resp = await client.post(
+            "/api/settings/proxy",
+            json={
+                "proxy_url": "http://Default:secret@resin:2260",
+                "resin_url": "http://127.0.0.1:2260/test",
+                "resin_platform_name": "TestPlatform",
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.json()["success"] is True
+
+        # Verify updated values
+        resp2 = await client.get("/api/settings/proxy")
+        data2 = resp2.json()
+        assert data2["proxy_url"] == "http://Default:secret@resin:2260"
+        assert data2["resin_url"] == "http://127.0.0.1:2260/test"
+        assert data2["resin_platform_name"] == "TestPlatform"
+

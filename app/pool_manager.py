@@ -13,6 +13,7 @@ from app.database import (
     mark_account_cooldown,
     mark_account_invalid,
     update_account_tokens,
+    update_account_usage,
     record_account_usage,
     reset_account_status,
 )
@@ -101,6 +102,15 @@ class PoolManager:
                 refresh_token=new_refresh_token,
                 chat_api_key=new_chat_key,
             )
+            # Update usage info
+            try:
+                import json
+                sub = await self.client.get_subscription(new_access_token, account_email=account["email"])
+                if sub:
+                    await update_account_usage(account_id, json.dumps(sub))
+            except Exception:
+                pass
+
             logger.info("Successfully refreshed account %s", account["email"])
             return True
         except Exception as e:
@@ -126,6 +136,13 @@ class PoolManager:
             )
             if status == 200:
                 await record_account_usage(account_id, success=True)
+                try:
+                    import json
+                    sub = await self.client.get_subscription(account["access_token"], account_email=account["email"])
+                    if sub:
+                        await update_account_usage(account_id, json.dumps(sub))
+                except Exception:
+                    pass
                 return True, "Account is active and functional."
             else:
                 detail = resp.get("detail", str(resp))
@@ -140,6 +157,20 @@ class PoolManager:
             return False
         await reset_account_status(account_id)
         return True
+
+    async def fetch_account_usage(self, account_id: int) -> Dict[str, Any]:
+        account = await get_account_by_id(account_id)
+        if not account:
+            return {}
+        try:
+            sub = await self.client.get_subscription(account["access_token"], account_email=account["email"])
+            if sub:
+                import json
+                await update_account_usage(account_id, json.dumps(sub))
+                return sub
+        except Exception as e:
+            logger.warning("Failed to fetch usage for %s: %s", account["email"], e)
+        return {}
 
     async def start_background_worker(self) -> None:
         if self._running:

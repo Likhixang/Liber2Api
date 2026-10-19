@@ -21,10 +21,12 @@ from app.database import (
     delete_api_token,
     get_all_accounts,
     get_all_api_tokens,
+    get_effective_proxy_settings,
     get_pool_summary,
     get_setting,
     init_db,
     set_setting,
+    update_account_usage,
     update_api_token_status,
     validate_and_record_token,
 )
@@ -54,6 +56,10 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Initializing Liber2Api database and background workers...")
     await init_db()
+    p_sets = await get_effective_proxy_settings()
+    config.PROXY_URL = p_sets["proxy_url"]
+    config.RESIN_URL = p_sets["resin_url"]
+    config.RESIN_PLATFORM_NAME = p_sets["resin_platform_name"]
     await pool_manager.start_background_worker()
     yield
     # Shutdown
@@ -63,7 +69,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Liber2Api",
-    version="1.3.1",
+    version="1.4.0",
     description="High-availability OpenAI-compatible 2API proxy with account pool management for LibertAI.",
     lifespan=lifespan,
 )
@@ -241,6 +247,36 @@ async def api_delete_token(token_id: int, _admin: bool = Depends(verify_admin)):
     return {"success": True, "message": "令牌已删除"}
 
 
+class ProxySettingsRequest(BaseModel):
+    proxy_url: Optional[str] = ""
+    resin_url: Optional[str] = ""
+    resin_platform_name: Optional[str] = "Default"
+
+
+@app.get("/api/settings/proxy")
+async def api_get_proxy_settings(_admin: bool = Depends(verify_admin)):
+    settings = await get_effective_proxy_settings()
+    return settings
+
+
+@app.post("/api/settings/proxy")
+async def api_set_proxy_settings(req: ProxySettingsRequest, _admin: bool = Depends(verify_admin)):
+    p_url = req.proxy_url.strip() if req.proxy_url else ""
+    r_url = req.resin_url.strip() if req.resin_url else ""
+    r_plat = req.resin_platform_name.strip() if req.resin_platform_name else "Default"
+
+    await set_setting("proxy_url", p_url)
+    await set_setting("resin_url", r_url)
+    await set_setting("resin_platform_name", r_plat)
+
+    # Hot update config module values
+    config.PROXY_URL = p_url
+    config.RESIN_URL = r_url.rstrip("/")
+    config.RESIN_PLATFORM_NAME = r_plat
+
+    return {"success": True, "message": "代理与 Resin 配置已更新并即时生效", "settings": await get_effective_proxy_settings()}
+
+
 @app.get("/api/settings/auth-policy")
 async def api_get_auth_policy(_admin: bool = Depends(verify_admin)):
     db_enabled = await get_setting("api_key_enabled")
@@ -341,12 +377,29 @@ async def api_list_accounts(_admin: bool = Depends(verify_admin)):
     clean_accounts = []
     for acc in accounts:
         item = dict(acc)
-        del item["access_token"]
-        del item["refresh_token"]
-        del item["chat_api_key"]
+        # If usage_info is empty and account is active, try to populate it
+        if not item.get("usage_info") and acc.get("status") == "active" and acc.get("access_token"):
+            try:
+                sub = await pool_manager.client.get_subscription(acc["access_token"], account_email=acc["email"])
+                if sub:
+                    sub_str = json.dumps(sub)
+                    item["usage_info"] = sub_str
+                    await update_account_usage(acc["id"], sub_str)
+            except Exception:
+                pass
+
+        item.pop("access_token", None)
+        item.pop("refresh_token", None)
+        item.pop("chat_api_key", None)
         clean_accounts.append(item)
 
     return {"accounts": clean_accounts, "summary": summary}
+
+
+@app.get("/api/accounts/{account_id}/usage")
+async def api_get_account_usage(account_id: int, _admin: bool = Depends(verify_admin)):
+    usage = await pool_manager.fetch_account_usage(account_id)
+    return {"success": True, "usage": usage}
 
 
 @app.post("/api/accounts/{account_id}/refresh")

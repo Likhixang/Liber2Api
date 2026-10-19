@@ -12,10 +12,13 @@ class StreamReasoningNormalizer:
     2. Splits mixed chunks (containing both reasoning and content) into two separate consecutive SSE frames.
     3. Monotonic State Guard: Once content streaming starts, prevents backwards jumping to thinking mode.
     4. Guards against leading empty content strings causing premature transition out of thinking mode.
+    5. Extracts embedded <think>...</think> tags inside content and lifts them to reasoning_content.
     """
 
     def __init__(self):
         self.has_started_content: bool = False
+        self.in_think_tag: bool = False
+        self.think_buffer: str = ""
 
     def normalize_json_response(self, resp_body: Dict[str, Any]) -> Dict[str, Any]:
         """Normalize non-streaming chat completion JSON response."""
@@ -90,8 +93,47 @@ class StreamReasoningNormalizer:
                 delta["content"] = r
                 return [chunk]
 
-        # Case 4: Pure content chunk
+        # Case 4: Content chunk (Extract embedded <think>...</think> tags if present)
         if c:
+            if "<think>" in c or self.in_think_tag:
+                out_chunks = []
+                remaining = c
+
+                if "<think>" in remaining and not self.in_think_tag:
+                    pre_think, post_think = remaining.split("<think>", 1)
+                    if pre_think:
+                        ch = json.loads(json.dumps(chunk))
+                        ch["choices"][0]["delta"] = {"content": pre_think}
+                        out_chunks.append(ch)
+                        self.has_started_content = True
+                    self.in_think_tag = True
+                    remaining = post_think
+
+                if self.in_think_tag:
+                    if "</think>" in remaining:
+                        think_text, post_text = remaining.split("</think>", 1)
+                        if think_text:
+                            ch1 = json.loads(json.dumps(chunk))
+                            ch1["choices"][0]["delta"] = {
+                                "reasoning": think_text,
+                                "reasoning_content": think_text,
+                            }
+                            out_chunks.append(ch1)
+                        self.in_think_tag = False
+                        if post_text:
+                            ch2 = json.loads(json.dumps(chunk))
+                            ch2["choices"][0]["delta"] = {"content": post_text}
+                            self.has_started_content = True
+                            out_chunks.append(ch2)
+                    else:
+                        ch = json.loads(json.dumps(chunk))
+                        ch["choices"][0]["delta"] = {
+                            "reasoning": remaining,
+                            "reasoning_content": remaining,
+                        }
+                        out_chunks.append(ch)
+                    return out_chunks
+
             self.has_started_content = True
             delta.pop("reasoning", None)
             delta.pop("reasoning_content", None)

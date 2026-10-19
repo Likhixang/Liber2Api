@@ -57,7 +57,7 @@
         <div>
           <span class="text-lg font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
             Liber2Api
-            <span class="text-xs px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">v1.3.1</span>
+            <span class="text-xs px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">v1.4.0</span>
           </span>
           <p class="text-xs text-slate-500 dark:text-slate-400 hidden sm:block">LibertAI 多账号负载均衡与 OpenAI 兼容代理网关</p>
         </div>
@@ -242,28 +242,50 @@
             <span class="text-xs text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/40 px-2 py-0.5 rounded-full font-medium">Tools 原生支持</span>
           </div>
 
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs mb-4">
-            <div class="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800/80 rounded-xl p-3">
-              <div class="text-slate-500 dark:text-slate-400 font-medium mb-1">Base URL (接口基础地址)</div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs mb-4">
+            <div class="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800/80 rounded-xl p-3 flex flex-col justify-between">
+              <div class="text-slate-500 dark:text-slate-400 font-medium mb-1 flex items-center gap-1.5">
+                <i data-lucide="link" class="w-3.5 h-3.5 text-sky-500"></i>
+                <span>Base URL (基础接口地址)</span>
+              </div>
               <div class="flex items-center justify-between font-mono text-sky-600 dark:text-sky-400 bg-white dark:bg-slate-900 px-2 py-1.5 rounded border border-slate-200 dark:border-slate-800">
-                <span id="base-url-text">http://localhost:8000/v1</span>
-                <button onclick="copyText('base-url-text')" class="text-slate-400 hover:text-slate-700 dark:hover:text-white transition">
+                <span id="base-url-text" class="truncate">http://localhost:8000/v1</span>
+                <button onclick="copyText('base-url-text')" class="text-slate-400 hover:text-slate-700 dark:hover:text-white transition ml-1" title="复制 Base URL">
                   <i data-lucide="copy" class="w-3.5 h-3.5"></i>
                 </button>
               </div>
             </div>
-            <div class="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800/80 rounded-xl p-3">
+            <div class="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800/80 rounded-xl p-3 flex flex-col justify-between">
               <div class="flex items-center justify-between mb-1">
-                <span class="text-slate-500 dark:text-slate-400 font-medium">API Tokens (多令牌管理)</span>
+                <span class="text-slate-500 dark:text-slate-400 font-medium flex items-center gap-1.5">
+                  <i data-lucide="key" class="w-3.5 h-3.5 text-amber-500"></i>
+                  <span>API Tokens (多令牌)</span>
+                </span>
                 <button onclick="openTokenModal()" class="text-[11px] text-sky-600 dark:text-sky-400 hover:underline flex items-center gap-1 font-sans">
-                  <i data-lucide="key" class="w-3 h-3"></i>
                   <span>管理令牌</span>
                 </button>
               </div>
               <div class="flex items-center justify-between font-mono text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900 px-2 py-1.5 rounded border border-slate-200 dark:border-slate-800">
-                <span id="api-key-text" class="truncate max-w-[200px]">{% if api_key %}{{ api_key }}{% else %}免密访问模式（留空即可）{% endif %}</span>
-                <button onclick="copyText('api-key-text')" class="text-slate-400 hover:text-slate-700 dark:hover:text-white transition" title="复制主可用令牌">
+                <span id="api-key-text" class="truncate">{% if api_key %}{{ api_key }}{% else %}免密访问模式（留空即可）{% endif %}</span>
+                <button onclick="copyText('api-key-text')" class="text-slate-400 hover:text-slate-700 dark:hover:text-white transition ml-1" title="复制主可用令牌">
                   <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                </button>
+              </div>
+            </div>
+            <div class="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800/80 rounded-xl p-3 flex flex-col justify-between sm:col-span-2 lg:col-span-1">
+              <div class="flex items-center justify-between mb-1">
+                <span class="text-slate-500 dark:text-slate-400 font-medium flex items-center gap-1.5">
+                  <i data-lucide="sliders" class="w-3.5 h-3.5 text-indigo-500"></i>
+                  <span>Resin & 代理网关</span>
+                </span>
+                <button onclick="openProxyModal()" class="text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 font-sans">
+                  <span>配置代理</span>
+                </button>
+              </div>
+              <div class="flex items-center justify-between font-mono text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 px-2 py-1.5 rounded border border-slate-200 dark:border-slate-800">
+                <span id="proxy-status-display" class="truncate text-[11px]">加载中...</span>
+                <button onclick="openProxyModal()" class="text-slate-400 hover:text-indigo-500 transition ml-1" title="查看代理配置">
+                  <i data-lucide="settings" class="w-3.5 h-3.5"></i>
                 </button>
               </div>
             </div>
@@ -289,12 +311,17 @@
           </div>
         </div>
 
-        <div class="mt-4 flex flex-wrap gap-2 text-[11px] text-slate-400">
-          <span class="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono">qwen3.6-35b-a3b</span>
-          <span class="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono">qwen3.8-27b</span>
-          <span class="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono">deepseek-v4.1-flash-1017-thinking</span>
-          <span class="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono">glm-5.3-flash</span>
-          <span class="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono">glm-5.3-thinking</span>
+        <div class="mt-4 flex flex-wrap items-center gap-1.5 text-[11px]">
+          <span class="text-slate-500 dark:text-slate-400 font-medium mr-1">可用基座模型:</span>
+          <span class="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono font-medium">deepseek-v4.1-flash</span>
+          <span class="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono font-medium">deepseek-v4.1-flash-1017</span>
+          <span class="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono font-medium">qwen3.8-27b</span>
+          <span class="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono font-medium">qwen3.6-35b-a3b</span>
+          <span class="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono font-medium">qwen3.5-122b-a10b</span>
+          <span class="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono font-medium">glm-5.3</span>
+          <span class="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono font-medium">glm-5.3-flash</span>
+          <span class="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono font-medium">hermes-3-8b</span>
+          <span class="text-[10px] text-slate-400 dark:text-slate-500 ml-1">（已自动合并-tee与-thinking，传 reasoning_effort 自动路由思考强度）</span>
         </div>
       </div>
     </div>
@@ -324,7 +351,7 @@
               <th class="py-3 px-4 font-medium">当前状态</th>
               <th class="py-3 px-4 font-medium">总调用 / 失败</th>
               <th class="py-3 px-4 font-medium">最近使用时间</th>
-              <th class="py-3 px-4 font-medium">冷却倒计时 / 异常说明</th>
+              <th class="py-3 px-4 font-medium">账号状态</th>
               <th class="py-3 px-4 font-medium text-right">操作</th>
             </tr>
           </thead>
@@ -341,6 +368,58 @@
 
   </main>
   {% endif %}
+
+  
+  <!-- Resin & Proxy Settings Modal -->
+  <div id="proxy-modal" class="fixed inset-0 z-50 bg-slate-900/40 dark:bg-slate-950/70 backdrop-blur-sm hidden flex items-center justify-center p-4">
+    <div class="max-w-xl w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-2xl space-y-5">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
+        <div class="flex items-center space-x-2">
+          <div class="p-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800/40">
+            <i data-lucide="sliders" class="w-4 h-4"></i>
+          </div>
+          <h3 class="text-sm font-semibold text-slate-900 dark:text-white">Resin 粘滞网关与网络代理设置</h3>
+        </div>
+        <button onclick="closeProxyModal()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <div class="space-y-4 text-xs">
+        <div>
+          <label class="block font-medium text-slate-700 dark:text-slate-300 mb-1">
+            正向代理 URL (Duck2api 规范 / 通用 HTTP/SOCKS 代理)
+          </label>
+          <input type="text" id="setting-proxy-url" placeholder="如: http://Default:TOKEN@resin:2260 或 http://127.0.0.1:7890" class="w-full font-mono text-xs bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/50" />
+          <p class="mt-1 text-[11px] text-slate-500 dark:text-slate-400">支持 Resin 外部正向代理（自动按账号邮箱注入 Platform.Account:TOKEN 保持粘滞出口），或填入通用代理。</p>
+        </div>
+
+        <div>
+          <label class="block font-medium text-slate-700 dark:text-slate-300 mb-1">
+            Resin 反向网关地址 (RESIN_URL)
+          </label>
+          <input type="text" id="setting-resin-url" placeholder="如: http://127.0.0.1:2260/my-token (可选，留空则直连)" class="w-full font-mono text-xs bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/50" />
+          <p class="mt-1 text-[11px] text-slate-500 dark:text-slate-400">使用 Resin 反向网关模式时配置，请求将重写至该网关并附带 X-Resin-Account 标头。</p>
+        </div>
+
+        <div>
+          <label class="block font-medium text-slate-700 dark:text-slate-300 mb-1">
+            Resin 平台名称 (RESIN_PLATFORM_NAME)
+          </label>
+          <input type="text" id="setting-resin-platform" placeholder="Default" value="Default" class="w-full text-xs bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/50" />
+        </div>
+      </div>
+
+      <div class="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end space-x-2">
+        <button onclick="closeProxyModal()" class="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-medium transition">
+          取消
+        </button>
+        <button onclick="saveProxySettings()" id="btn-save-proxy" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-xs shadow-sm transition">
+          保存并即时生效
+        </button>
+      </div>
+    </div>
+  </div>
 
   <!-- Multi-Token Management Modal -->
   <div id="token-modal" class="fixed inset-0 z-50 bg-slate-900/40 dark:bg-slate-950/70 backdrop-blur-sm hidden flex items-center justify-center p-4">
@@ -703,13 +782,13 @@
 
     function showFeedback(text, type = 'info') {
       const el = document.getElementById('wizard-feedback');
-      el.classList.remove('hidden', 'bg-red-950/50', 'text-red-300', 'border-red-800', 'bg-emerald-950/50', 'text-emerald-300', 'border-emerald-800', 'bg-sky-950/50', 'text-sky-300', 'border-sky-800');
+      el.classList.remove('hidden');
       if (type === 'error') {
-        el.classList.add('bg-red-950/50', 'text-red-300', 'border', 'border-red-800');
+        el.className = 'mt-4 text-xs rounded-lg p-2.5 border bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800/60';
       } else if (type === 'success') {
-        el.classList.add('bg-emerald-950/50', 'text-emerald-300', 'border', 'border-emerald-800');
+        el.className = 'mt-4 text-xs rounded-lg p-2.5 border bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/60';
       } else {
-        el.classList.add('bg-sky-950/50', 'text-sky-300', 'border', 'border-sky-800');
+        el.className = 'mt-4 text-xs rounded-lg p-2.5 border bg-sky-50 dark:bg-sky-950/50 text-sky-700 dark:text-sky-300 border-sky-200 dark:border-sky-800/60';
       }
       el.innerText = text;
     }
@@ -772,6 +851,7 @@
         showFeedback(`账号 ${activeEmail} 绑定成功，已加入可用号池！`, 'success');
         resetAddForm();
         loadAccounts();
+    loadProxySettings();
       } catch (err) {
         showFeedback(err.message, 'error');
       } finally {
@@ -819,22 +899,41 @@
 
         const now = new Date();
         tbody.innerHTML = data.accounts.map(acc => {
-          let badgeClass = 'bg-emerald-950/60 text-emerald-400 border-emerald-800/60';
+          let badgeClass = 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/60';
           let statusText = '活跃 Active';
-          let cdText = '-';
+          let statusDetail = '';
+
+          // Format usage info if available
+          let usageBadge = '';
+          if (acc.usage_info) {
+            try {
+              const u = typeof acc.usage_info === 'string' ? JSON.parse(acc.usage_info) : acc.usage_info;
+              if (u.window_5h_used_percent !== undefined) {
+                const p5 = Number(u.window_5h_used_percent).toFixed(1);
+                const pw = Number(u.weekly_used_percent || 0).toFixed(1);
+                const isHeavy = Number(p5) > 80;
+                const pColor = isHeavy ? 'text-amber-600 dark:text-amber-400' : 'text-slate-700 dark:text-slate-300';
+                usageBadge = `<span class="inline-flex items-center gap-1 font-mono text-[11px] ${pColor} bg-slate-100 dark:bg-slate-800/80 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700"><i data-lucide="gauge" class="w-3 h-3 text-sky-500"></i>5h已用: ${p5}% · 周已用: ${pw}%</span>`;
+              }
+            } catch (e) {}
+          }
 
           if (acc.status === 'invalid') {
-            badgeClass = 'bg-rose-950/60 text-rose-400 border-rose-800/60';
+            badgeClass = 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-800/60';
             statusText = '失效 Invalid';
-            cdText = acc.last_error || '凭证失效';
+            statusDetail = `<span class="text-rose-600 dark:text-rose-400 font-medium">${escapeHtml(acc.last_error || '凭证失效')}</span>`;
           } else if (acc.status === 'cooldown' && acc.cooldown_until) {
             const cdDate = new Date(acc.cooldown_until);
             if (cdDate > now) {
-              badgeClass = 'bg-amber-950/60 text-amber-400 border-amber-800/60';
+              badgeClass = 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800/60';
               statusText = '冷却中 Cooldown';
               const diffMin = Math.ceil((cdDate - now) / 60000);
-              cdText = `剩余约 ${diffMin} 分钟 (${acc.last_error || '429'})`;
+              statusDetail = `<div class="flex items-center gap-2"><span class="text-amber-600 dark:text-amber-400 font-medium">冷却中 (约剩 ${diffMin} 分钟)</span> ${usageBadge}</div>`;
+            } else {
+              statusDetail = usageBadge || '<span class="text-emerald-600 dark:text-emerald-400">就绪</span>';
             }
+          } else {
+            statusDetail = usageBadge || '<span class="text-emerald-600 dark:text-emerald-400">就绪</span>';
           }
 
           const lastUsed = acc.last_used_at ? new Date(acc.last_used_at).toLocaleString() : '未曾使用';
@@ -852,7 +951,7 @@
                 ${acc.total_requests} / <span class="text-rose-500 dark:text-rose-400">${acc.failed_requests}</span>
               </td>
               <td class="py-3 px-4 text-slate-500 dark:text-slate-400">${lastUsed}</td>
-              <td class="py-3 px-4 text-slate-500 dark:text-slate-400 truncate max-w-xs" title="${escapeHtml(cdText)}">${escapeHtml(cdText)}</td>
+              <td class="py-3 px-4">${statusDetail}</td>
               <td class="py-3 px-4 text-right space-x-2">
                 <button onclick="testAccount(${acc.id})" class="text-xs px-2 py-1 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-sky-600 dark:text-sky-400 transition" title="测试该号连通性">测试</button>
                 <button onclick="refreshAccount(${acc.id})" class="text-xs px-2 py-1 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-indigo-600 dark:text-indigo-400 transition" title="手动轮转Token">刷新</button>
@@ -874,6 +973,7 @@
         const data = await resp.json();
         alert(data.message || (data.success ? '测试成功！' : '测试失败'));
         loadAccounts();
+    loadProxySettings();
       } catch (err) {
         alert('测试请求异常: ' + err.message);
       }
@@ -885,6 +985,7 @@
         const data = await resp.json();
         alert(data.message || '刷新完成');
         loadAccounts();
+    loadProxySettings();
       } catch (err) {
         alert('刷新请求异常: ' + err.message);
       }
@@ -895,6 +996,7 @@
         const resp = await fetch(`/api/accounts/${id}/reset`, { method: 'POST' });
         const data = await resp.json();
         loadAccounts();
+    loadProxySettings();
       } catch (err) {
         alert('解冻异常: ' + err.message);
       }
@@ -905,6 +1007,7 @@
       try {
         await fetch(`/api/accounts/${id}`, { method: 'DELETE' });
         loadAccounts();
+    loadProxySettings();
       } catch (err) {
         alert('删除失败: ' + err.message);
       }
@@ -924,6 +1027,7 @@
 
     // Initial load
     loadAccounts();
+    loadProxySettings();
 
     // Auto-recover login state if session expired on fresh tab
     (async function checkAutoLogin() {
