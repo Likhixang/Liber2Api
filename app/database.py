@@ -38,6 +38,14 @@ async def init_db() -> None:
             )
             """
         )
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+            """
+        )
         await db.commit()
 
 
@@ -269,3 +277,22 @@ async def get_pool_summary() -> Dict[str, Any]:
             "failed_requests": failed_reqs,
             "success_rate": success_rate,
         }
+
+
+async def get_setting(key: str, default: Optional[str] = None) -> Optional[str]:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cursor = await db.execute("SELECT value FROM settings WHERE key = ?", (key,))
+        row = await cursor.fetchone()
+        return row[0] if row else default
+
+
+async def set_setting(key: str, value: str) -> None:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            """
+            INSERT INTO settings (key, value) VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
+            (key, value),
+        )
+        await db.commit()

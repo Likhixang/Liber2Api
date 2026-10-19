@@ -191,3 +191,49 @@ def test_resin_sticky_resolution():
         assert headers["Content-Type"] == "application/json"
     finally:
         config.RESIN_URL = orig_resin
+
+
+@pytest.mark.asyncio
+async def test_api_key_settings_management():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # 1. Initially disabled or default
+        resp = await client.get("/api/settings/api-key")
+        assert resp.status_code == 200
+
+        # 2. Update API key setting to enabled with custom key
+        resp = await client.post(
+            "/api/settings/api-key",
+            json={"enabled": True, "api_key": "sk-custom-test-12345"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["success"] is True
+
+        # 3. Requesting chat/completions without key should return 401
+        resp = await client.post(
+            "/v1/chat/completions",
+            json={"model": "qwen3.6-35b-a3b", "messages": [{"role": "user", "content": "hi"}]},
+        )
+        assert resp.status_code == 401
+
+        # 4. Requesting with wrong key should return 401
+        resp = await client.post(
+            "/v1/chat/completions",
+            headers={"Authorization": "Bearer sk-wrong-key"},
+            json={"model": "qwen3.6-35b-a3b", "messages": [{"role": "user", "content": "hi"}]},
+        )
+        assert resp.status_code == 401
+
+        # 5. Disable API key policy
+        resp = await client.post(
+            "/api/settings/api-key",
+            json={"enabled": False, "api_key": ""},
+        )
+        assert resp.status_code == 200
+
+        # Now completions should bypass key check (will reach account pool, returning 503 if pool empty)
+        resp = await client.post(
+            "/v1/chat/completions",
+            json={"model": "qwen3.6-35b-a3b", "messages": [{"role": "user", "content": "hi"}]},
+        )
+        assert resp.status_code != 401

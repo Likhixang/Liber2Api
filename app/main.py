@@ -18,7 +18,9 @@ from app.database import (
     delete_account,
     get_all_accounts,
     get_pool_summary,
+    get_setting,
     init_db,
+    set_setting,
 )
 from app.libertai_client import LibertAIClient, LibertAIException
 from app.pool_manager import pool_manager
@@ -54,7 +56,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Liber2Api",
-    version="1.1.0",
+    version="1.2.0",
     description="High-availability OpenAI-compatible 2API proxy with account pool management for LibertAI.",
     lifespan=lifespan,
 )
@@ -69,9 +71,30 @@ app.add_middleware(
 )
 
 
+# Dynamic API Key resolution (DB setting overrides environment variable)
+async def get_effective_api_key_config():
+    """
+    Returns (enabled: bool, api_key: str).
+    Database setting takes precedence over config.API_KEY.
+    """
+    db_enabled = await get_setting("api_key_enabled")
+    db_key = await get_setting("api_key")
+
+    if db_enabled is not None:
+        enabled = db_enabled.lower() == "true"
+        key = db_key or ""
+        return enabled, key
+
+    # Fallback to environment variable
+    if config.API_KEY:
+        return True, config.API_KEY
+    return False, ""
+
+
 # Security Dependency for 2API endpoints
-def verify_api_key(authorization: Optional[str] = Header(None)) -> bool:
-    if not config.API_KEY:
+async def verify_api_key(authorization: Optional[str] = Header(None)) -> bool:
+    enabled, valid_key = await get_effective_api_key_config()
+    if not enabled or not valid_key:
         return True
     if not authorization:
         raise HTTPException(
@@ -79,7 +102,7 @@ def verify_api_key(authorization: Optional[str] = Header(None)) -> bool:
             detail="Missing Authorization header",
         )
     parts = authorization.split()
-    if len(parts) != 2 or parts[0].lower() != "bearer" or parts[1] != config.API_KEY:
+    if len(parts) != 2 or parts[0].lower() != "bearer" or parts[1] != valid_key:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid API key",
@@ -161,17 +184,42 @@ async def admin_status(
     }
 
 
+class ApiKeySettingRequest(BaseModel):
+    enabled: bool
+    api_key: str = ""
+
+
+@app.get("/api/settings/api-key")
+async def api_get_api_key_setting(_admin: bool = Depends(verify_admin)):
+    enabled, key = await get_effective_api_key_config()
+    return {"enabled": enabled, "api_key": key}
+
+
+@app.post("/api/settings/api-key")
+async def api_set_api_key_setting(req: ApiKeySettingRequest, _admin: bool = Depends(verify_admin)):
+    await set_setting("api_key_enabled", "true" if req.enabled else "false")
+    await set_setting("api_key", req.api_key.strip())
+    return {
+        "success": True,
+        "message": "API Key 策略已更新并实时生效",
+        "enabled": req.enabled,
+        "api_key": req.api_key.strip(),
+    }
+
+
 @app.get("/", response_class=HTMLResponse)
 async def serve_index(
     request: Request,
     liber2api_session: Optional[str] = Cookie(None),
 ):
     authenticated = is_admin_authenticated(liber2api_session=liber2api_session)
+    enabled, key = await get_effective_api_key_config()
     return templates.TemplateResponse(
         request=request,
         name="index.html",
         context={
-            "api_key": config.API_KEY,
+            "api_key": key if enabled else "",
+            "api_key_enabled": enabled,
             "has_admin_pass": bool(config.ADMIN_PASSWORD),
             "is_authenticated": authenticated,
         },
