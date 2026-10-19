@@ -7,6 +7,7 @@ from app.config import (
     AUTO_REFRESH_INTERVAL,
 )
 from app.database import (
+    delete_account,
     get_all_accounts,
     get_active_accounts,
     get_account_by_id,
@@ -28,6 +29,7 @@ class PoolManager:
         self._lock = asyncio.Lock()
         self._worker_task: Optional[asyncio.Task] = None
         self._running = False
+        self._last_replenish_fail_time: float = 0
 
     async def get_next_account(self) -> Optional[Dict[str, Any]]:
         """
@@ -38,14 +40,17 @@ class PoolManager:
         async with self._lock:
             accounts = await get_active_accounts()
             if not accounts:
-                logger.warning("No active accounts available in pool! Attempting emergency auto-registration...")
-                try:
-                    from app.auto_register import registrar
-                    new_acc = await registrar.register_account(max_wait_seconds=25)
-                    if new_acc:
-                        return new_acc
-                except Exception as e:
-                    logger.error("Emergency auto-registration failed: %s", e)
+                import time
+                if time.time() - self._last_replenish_fail_time > 300:
+                    logger.warning("No active accounts available in pool! Attempting emergency auto-registration...")
+                    try:
+                        from app.auto_register import registrar
+                        new_acc = await registrar.register_account(max_wait_seconds=20)
+                        if new_acc:
+                            return new_acc
+                    except Exception as e:
+                        self._last_replenish_fail_time = time.time()
+                        logger.error("Emergency auto-registration failed (%s), backing off for 5 min", e)
                 return None
             return accounts[0]
 
@@ -209,13 +214,15 @@ class PoolManager:
         1. Checks for accounts with expired cooldowns and restores them to active.
         2. Proactively refreshes tokens for accounts that haven't been updated recently.
         """
-        check_interval = 60  # Check cooldowns every minute
+        check_interval = 60  # Cooldown check loop: every 60s
+        health_check_tick = 0  # Health check & replenishment interval: every 300s (5 min)
         refresh_tick = 0
 
         while self._running:
             try:
                 await asyncio.sleep(check_interval)
                 refresh_tick += check_interval
+                health_check_tick += check_interval
 
                 # 1. Restore cooldowns
                 now = datetime.now(timezone.utc).isoformat()
@@ -227,24 +234,42 @@ class PoolManager:
                             logger.info("Cooldown ended for account %s, reactivating", acc["email"])
                             await reset_account_status(acc["id"])
 
-                # 2. Proactive token rotation
+                # 2. Every 5 minutes (300s): Health check and purge abnormal accounts, plus auto replenishment
+                if health_check_tick >= 300:
+                    health_check_tick = 0
+                    logger.info("Running 5-minute health probe and account purge across pool...")
+                    current_accounts = await get_all_accounts()
+                    for acc in current_accounts:
+                        # Probe account
+                        is_ok, msg = await self.test_account(acc["id"])
+                        if not is_ok:
+                            logger.warning("Account %s failed health probe (%s), auto purging from pool", acc["email"], msg)
+                            await delete_account(acc["id"])
+                        await asyncio.sleep(1)
+
+                    # Auto replenishment: create 3 new accounts if active count < 100
+                    active_now = await get_active_accounts()
+                    if len(active_now) < 100:
+                        logger.info("Active accounts (%d < 100), running scheduled 5-min batch creation of 3 accounts...", len(active_now))
+                        from app.auto_register import registrar
+                        for i in range(3):
+                            try:
+                                await registrar.register_account()
+                                logger.info("Batch replenish: created account %d/3", i + 1)
+                                await asyncio.sleep(2)
+                            except Exception as e:
+                                logger.error("Batch replenish account %d failed: %s", i + 1, e)
+                    else:
+                        logger.info("Active accounts count (%d >= 100), skipping auto-replenishment", len(active_now))
+
+                # 3. Proactive token rotation
                 if refresh_tick >= AUTO_REFRESH_INTERVAL:
                     refresh_tick = 0
                     logger.info("Running scheduled token rotation across account pool")
-                    for acc in all_accounts:
+                    for acc in await get_all_accounts():
                         if acc["status"] != "invalid":
                             await self.refresh_account(acc["id"])
-                            await asyncio.sleep(2)  # Avoid bursting the auth endpoint
-
-                # 3. Auto replenishment: maintain at least 2 active accounts
-                active_accounts = await get_active_accounts()
-                if len(active_accounts) < 2:
-                    logger.info("Active accounts in pool (%d) below minimum (2), triggering auto-replenishment...", len(active_accounts))
-                    try:
-                        from app.auto_register import registrar
-                        await registrar.register_account()
-                    except Exception as e:
-                        logger.error("Auto replenishment failed: %s", e)
+                            await asyncio.sleep(2)
 
             except asyncio.CancelledError:
                 break
