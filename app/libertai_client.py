@@ -239,6 +239,20 @@ class LibertAIClient:
                 )
             return resp.json()
 
+    async def check_chat_api_key_auth(self, chat_api_key: str, account_email: Optional[str] = None) -> Tuple[int, str]:
+        """
+        Lightweight check of chat_api_key validity using GET https://api.libertai.io/libertai/auth/check.
+        Returns (status_code, response_text).
+        """
+        target_url = "https://api.libertai.io/libertai/auth/check"
+        headers_in = {
+            "Authorization": f"Bearer {chat_api_key}",
+        }
+        url, headers = resolve_request_endpoint(target_url, account_email=account_email, extra_headers=headers_in)
+        async with self._get_client(account_email=account_email) as client:
+            resp = await client.get(url, headers=headers)
+            return resp.status_code, resp.text
+
     async def forward_completion_json(
         self, chat_api_key: str, payload: dict, account_email: Optional[str] = None
     ) -> Tuple[int, Dict[str, Any]]:

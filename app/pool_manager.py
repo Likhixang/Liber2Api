@@ -69,21 +69,15 @@ class PoolManager:
             await record_account_usage(account_id, success=True)
             return True
 
-        if status_code == 429:
-            # Plan allowance or rate limit reached
-            cooldown_until = datetime.now(timezone.utc) + timedelta(hours=COOLDOWN_HOURS)
-            error_msg = f"Rate limited (429): {error_detail[:200]}"
-            logger.warning("Account %s triggered 429, cooling down until %s", account["email"], cooldown_until.isoformat())
-            await mark_account_cooldown(account_id, cooldown_until.isoformat(), error_msg)
-            return False
-
-        if status_code == 401:
-            # Token might be expired, attempt immediate refresh
-            logger.info("Account %s got 401, attempting token refresh", account["email"])
-            refreshed, err_str = await self.refresh_account_with_error(account_id)
+        if status_code in (401, 429):
+            # 401/429 on LibertAI corresponds to quota limits or 5-hour rolling window exhaustion.
+            # Attempt a single proactive token refresh. If still limited, put into 5-hour cooldown. Do NOT kick or delete!
+            refreshed, _ = await self.refresh_account_with_error(account_id)
             if not refreshed:
-                logger.error("Account %s token refresh failed (%s), marking invalid", account["email"], err_str)
-                await mark_account_invalid(account_id, f"上游会话失效已注销: {err_str[:150]}")
+                cooldown_until = datetime.now(timezone.utc) + timedelta(hours=COOLDOWN_HOURS)
+                msg = f"HTTP {status_code}: 额度已达上限，进入5小时自动冷却"
+                logger.warning("Account %s triggered %d (quota limit), cooling down until %s", account["email"], status_code, cooldown_until.isoformat())
+                await mark_account_cooldown(account_id, cooldown_until.isoformat(), msg)
             return False
 
         # Other 4xx/5xx errors
@@ -138,35 +132,39 @@ class PoolManager:
 
     async def test_account(self, account_id: int) -> Tuple[bool, str]:
         """
-        Tests if an account's chat_api_key is working by performing a minimal completion.
+        Tests if an account's chat_api_key is working by performing lightweight auth check.
+        Uses GET https://api.libertai.io/libertai/auth/check.
+        If auth check returns 401/429, marks cooldown instead of invalid or deleting.
         """
         account = await get_account_by_id(account_id)
         if not account:
             return False, "Account not found"
 
-        test_payload = {
-            "model": "qwen3.6-35b-a3b",
-            "messages": [{"role": "user", "content": "ping"}],
-            "max_tokens": 5,
-        }
         try:
-            status, resp = await self.client.forward_completion_json(
-                account["chat_api_key"], test_payload, account_email=account["email"]
+            status, resp_text = await self.client.check_chat_api_key_auth(
+                account["chat_api_key"], account_email=account["email"]
             )
             if status == 200:
                 await record_account_usage(account_id, success=True)
-                try:
-                    import json
-                    sub = await self.client.get_subscription(account["access_token"], account_email=account["email"])
-                    if sub:
-                        await update_account_usage(account_id, json.dumps(sub))
-                except Exception:
-                    pass
-                return True, "Account is active and functional."
+                return True, "账号状态活跃正常"
+            elif status in (401, 429):
+                refreshed, _ = await self.refresh_account_with_error(account_id)
+                if refreshed:
+                    acc_new = await get_account_by_id(account_id)
+                    if acc_new:
+                        s2, _ = await self.client.check_chat_api_key_auth(
+                            acc_new["chat_api_key"], account_email=acc_new["email"]
+                        )
+                        if s2 == 200:
+                            return True, "账号刷新后恢复正常"
+
+                cooldown_until = datetime.now(timezone.utc) + timedelta(hours=COOLDOWN_HOURS)
+                msg = f"HTTP {status} 额度已达上限，进入冷却中"
+                await mark_account_cooldown(account_id, cooldown_until.isoformat(), msg)
+                return False, msg
             else:
-                detail = resp.get("detail", str(resp))
-                await self.handle_response(account, status, str(detail))
-                return False, f"HTTP {status}: {detail}"
+                await record_account_usage(account_id, success=False)
+                return False, f"HTTP {status}: {resp_text[:100]}"
         except Exception as e:
             return False, f"Network error: {str(e)}"
 
@@ -251,17 +249,16 @@ class PoolManager:
                             logger.info("Cooldown ended for account %s, reactivating", acc["email"])
                             await reset_account_status(acc["id"])
 
-                # 2. Every 5 minutes (300s): Health check and purge abnormal accounts, plus auto replenishment
+                # 2. Every 5 minutes (300s): Health check & cooldown evaluation, plus auto replenishment
                 if health_check_tick >= 300:
                     health_check_tick = 0
-                    logger.info("Running 5-minute health probe and account purge across pool...")
+                    logger.info("Running 5-minute health probe across pool...")
                     current_accounts = await get_all_accounts()
                     for acc in current_accounts:
                         # Probe account
                         is_ok, msg = await self.test_account(acc["id"])
                         if not is_ok:
-                            logger.warning("Account %s failed health probe (%s), auto purging from pool", acc["email"], msg)
-                            await delete_account(acc["id"])
+                            logger.info("Account %s in cooldown: %s", acc["email"], msg)
                         await asyncio.sleep(1)
 
                     # Auto replenishment: create 3 new accounts if active count < 100

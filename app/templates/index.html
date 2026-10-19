@@ -57,7 +57,7 @@
         <div>
           <span class="text-lg font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
             Liber2Api
-            <span class="text-xs px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">v2.0.0</span>
+            <span class="text-xs px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">v2.1.0</span>
           </span>
           <p class="text-xs text-slate-500 dark:text-slate-400 hidden sm:block">LibertAI 多账号负载均衡与 OpenAI 兼容代理网关</p>
         </div>
@@ -171,7 +171,7 @@
           <span>调用成功率</span>
           <i data-lucide="trending-up" class="w-4 h-4 text-indigo-400"></i>
         </div>
-        <div class="text-2xl font-bold text-indigo-400" id="stat-success-rate">100%</div>
+        <div class="text-2xl font-bold text-indigo-400" id="stat-success-rate">-</div>
         <div class="text-[11px] text-slate-400 dark:text-slate-500 mt-1">故障自动无感转移</div>
       </div>
     </div>
@@ -1181,7 +1181,7 @@
         document.getElementById('stat-active').innerText = summary.active_accounts;
         document.getElementById('stat-cooldown').innerText = summary.cooldown_accounts;
         document.getElementById('stat-requests').innerText = summary.total_requests;
-        document.getElementById('stat-success-rate').innerText = `${summary.success_rate}%`;
+        document.getElementById('stat-success-rate').innerText = (summary.success_rate !== null && summary.success_rate !== undefined) ? `${summary.success_rate}%` : '-';
 
         // Render table
         const tbody = document.getElementById('accounts-table-body');

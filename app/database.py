@@ -340,7 +340,7 @@ async def get_pool_summary() -> Dict[str, Any]:
             else:
                 active += 1
 
-        success_rate = 100.0 if total_reqs == 0 else round((total_reqs - failed_reqs) / total_reqs * 100, 1)
+        success_rate = None if total_reqs == 0 else round((total_reqs - failed_reqs) / total_reqs * 100, 1)
 
         return {
             "total_accounts": total,

@@ -69,6 +69,10 @@ async def test_active_accounts_and_cooldown():
 
 @pytest.mark.asyncio
 async def test_usage_and_summary():
+    # Empty pool summary has None success_rate
+    s_empty = await db.get_pool_summary()
+    assert s_empty["success_rate"] is None
+
     acc = await db.add_or_update_account("user_stat@test.com", "a", "r", "k")
     await db.record_account_usage(acc["id"], success=True)
     await db.record_account_usage(acc["id"], success=False)
