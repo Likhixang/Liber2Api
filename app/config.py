@@ -14,10 +14,30 @@ DATABASE_PATH = Path(os.getenv("DATABASE_PATH", DATA_DIR / "liber2api.db"))
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "8000"))
 
+def _load_or_create_session_secret() -> str:
+    env_secret = os.getenv("SESSION_SECRET")
+    if env_secret:
+        return env_secret
+    secret_file = DATA_DIR / "session_secret"
+    if secret_file.exists():
+        try:
+            val = secret_file.read_text(encoding="utf-8").strip()
+            if val:
+                return val
+        except Exception:
+            pass
+    new_secret = secrets.token_hex(32)
+    try:
+        secret_file.write_text(new_secret, encoding="utf-8")
+    except Exception:
+        pass
+    return new_secret
+
+
 # Security & Authentication
 # If set, WebUI management requires entering this password to view and manage pool
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
-SESSION_SECRET = os.getenv("SESSION_SECRET", secrets.token_hex(32))
+SESSION_SECRET = _load_or_create_session_secret()
 
 # If set, downstream clients accessing /v1/chat/completions require Bearer <API_KEY>
 API_KEY = os.getenv("API_KEY", "")

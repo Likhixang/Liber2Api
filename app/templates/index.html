@@ -57,7 +57,7 @@
         <div>
           <span class="text-lg font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
             Liber2Api
-            <span class="text-xs px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">v1.2.0</span>
+            <span class="text-xs px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">v1.2.1</span>
           </span>
           <p class="text-xs text-slate-500 dark:text-slate-400 hidden sm:block">LibertAI 多账号负载均衡与 OpenAI 兼容代理网关</p>
         </div>
@@ -578,8 +578,8 @@
         // Update curl snippet
         const curlPre = document.getElementById('curl-snippet');
         if (curlPre) {
-          const authHdr = enabled && keyVal ? ('Bearer ' + keyVal) : 'Bearer any-key';
-          curlPre.innerText = 'curl -X POST ' + currentOrigin + '/v1/chat/completions \\\n  -H "Content-Type: application/json" \\\n  -H "Authorization: ' + authHdr + '" \\\n  -d '{\n    "model": "qwen3.6-35b-a3b",\n    "messages": [{"role": "user", "content": "你好！"}],\n    "stream": true\n  }'';
+          const authHdr = enabled && keyVal ? `Bearer ${keyVal}` : 'Bearer any-key';
+          curlPre.innerText = `curl -X POST ${currentOrigin}/v1/chat/completions \\\n  -H "Content-Type: application/json" \\\n  -H "Authorization: ${authHdr}" \\\n  -d '{\n    "model": "qwen3.6-35b-a3b",\n    "messages": [{"role": "user", "content": "你好！"}],\n    "stream": true\n  }'`;
         }
       } catch (err) {
         alert('保存错误: ' + err.message);
