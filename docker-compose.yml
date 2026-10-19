@@ -5,13 +5,13 @@ services:
     restart: unless-stopped
     ports:
       # 仅供本机或宿主机 NPM/反代访问，绑定 127.0.0.1
-      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:8035:8000"
     environment:
       - PORT=8000
       - HOST=0.0.0.0
       - DATA_DIR=/app/data
-      # 可选：如果希望保护 WebUI 管理面板，取消注释并设置密码
-      # - ADMIN_PASSWORD=your_admin_secret
+      # WebUI 管理密码
+      - ADMIN_PASSWORD=lw.99529525
       # 可选：如果希望限制下游客户端调用，取消注释并设置 API_KEY
       # - API_KEY=sk-liber2api-secret
       # 429 触发后的冷却时间（小时），默认 5 小时
