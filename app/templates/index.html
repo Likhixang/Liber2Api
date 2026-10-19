@@ -537,7 +537,7 @@
   </div>
 
   <!-- Mail Providers Management Modal (支持内置源与自定义邮箱 API) -->
-  <div id="mail-provider-modal" class="fixed inset-0 z-50 bg-slate-900/40 dark:bg-slate-950/70 backdrop-blur-sm hidden flex items-center justify-center p-4">
+  <div id="mail-provider-modal" onclick="if(event.target === this) closeMailProviderModal()" class="fixed inset-0 z-50 bg-slate-900/40 dark:bg-slate-950/70 backdrop-blur-sm hidden flex items-center justify-center p-4">
     <div class="max-w-4xl w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-2xl space-y-5 max-h-[90vh] flex flex-col">
       <div class="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800 shrink-0">
         <div class="flex items-center space-x-2">
