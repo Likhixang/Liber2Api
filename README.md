@@ -17,7 +17,9 @@
 ## ✨ 核心特性
 
 - 🛠 **原生支持 Function Calling (Tools)**：底层对接官方 vLLM 引擎，无论是流式（Stream）还是非流式，均 100% 原生支持 OpenAI 工具调用格式，完美适配各类 Agent（如 Claude Code, Cline, Dify, LangChain 等）。
-- 🖥 **轻量优雅的 WebUI 号池看板**：内嵌现代暗黑风格响应式 Web 控制台，实时透视各账号状态（正常、冷却中、失效）、调用量与成功率。
+- 🎨 **自适应亮暗与系统跟随主题**：支持深色（Dark）、浅色（Light）与跟随系统（System）无缝切换，界面现代且舒适。
+- 🔐 **WebUI 密码安全锁屏门禁**：支持配置 `ADMIN_PASSWORD`，未认证访问强制拦截在登录页，完全保护号池信息与管理接口。
+- 🌐 **原生支持 Resin 粘滞代理网关**：遵循 Resin 粘性代理规范，配置 `RESIN_URL` 后自动将账号请求反向代理并通过 `X-Resin-Account` 锚定出口 IP，避免频繁漂移导致风控。
 - ✉️ **极简两步向导人工录入**：拒绝脆弱易封号的批量接码爬虫。在 WebUI 中「输邮箱 ➔ 收 6 位验证码 ➔ 提交入库」，15 秒即可绑定一个真实有效账号。
 - 🔄 **官方规范 Token 自动轮转保活**：基于 LibertAI 原生 `Token Rotation` 规范，后台定时自动刷新 `refresh_token` 并更新 `chatApiKey`，**一次录入，长期无感持久保活**。
 - 🛡 **429 自动冷却与无缝故障转移 (Failover)**：
@@ -149,8 +151,10 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 | `PORT` | `8000` | 容器/服务监听端口 |
 | `HOST` | `0.0.0.0` | 服务绑定地址 |
 | `DATA_DIR` | `/app/data` | 数据持久化目录（存储 SQLite 数据库） |
-| `ADMIN_PASSWORD` | `""` (留空) | WebUI 管理密码。设置后，WebUI 接口调用需校验 `x-admin-password` |
+| `ADMIN_PASSWORD` | `""` (留空) | WebUI 管理密码。设置后 Web 页面与管理 API 均需要登录认证 |
 | `API_KEY` | `""` (留空) | 下游客户端请求 2API 必须提供的 Key；留空则任何人均可直接调用 |
+| `RESIN_URL` | `""` (留空) | Resin 外部粘性代理网关地址（如 `http://127.0.0.1:2260/token`）；留空则直连 |
+| `RESIN_PLATFORM_NAME` | `Default` | Resin 平台名称，用于多出口节点筛选 |
 | `COOLDOWN_HOURS` | `5` | 单个账号触发 429 后的冷却时长（小时） |
 | `AUTO_REFRESH_INTERVAL` | `43200` | 后台定时保活刷新 Token 的周期（秒，默认 12 小时） |
 | `MAX_FAILOVER_RETRIES` | `3` | 单次请求在上游异常时最大无感切换重试账号数 |

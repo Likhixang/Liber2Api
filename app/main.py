@@ -1,23 +1,18 @@
+import hashlib
+import hmac
 import json
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, status
+from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
-from app.config import (
-    ADMIN_PASSWORD,
-    API_KEY,
-    BASE_DIR,
-    HOST,
-    MAX_FAILOVER_RETRIES,
-    PORT,
-)
+import app.config as config
 from app.database import (
     add_or_update_account,
     delete_account,
@@ -36,8 +31,13 @@ logging.basicConfig(
 logger = logging.getLogger("liber2api.server")
 
 # Templates
-templates_dir = BASE_DIR / "app" / "templates"
+templates_dir = config.BASE_DIR / "app" / "templates"
 templates = Jinja2Templates(directory=str(templates_dir))
+
+
+def compute_session_token(password: str) -> str:
+    """Computes a deterministic HMAC-SHA256 session token for admin authentication."""
+    return hmac.new(config.SESSION_SECRET.encode(), password.encode(), hashlib.sha256).hexdigest()
 
 
 @asynccontextmanager
@@ -54,7 +54,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Liber2Api",
-    version="1.0.0",
+    version="1.1.0",
     description="High-availability OpenAI-compatible 2API proxy with account pool management for LibertAI.",
     lifespan=lifespan,
 )
@@ -69,9 +69,9 @@ app.add_middleware(
 )
 
 
-# Security Dependency for API endpoints
+# Security Dependency for 2API endpoints
 def verify_api_key(authorization: Optional[str] = Header(None)) -> bool:
-    if not API_KEY:
+    if not config.API_KEY:
         return True
     if not authorization:
         raise HTTPException(
@@ -79,7 +79,7 @@ def verify_api_key(authorization: Optional[str] = Header(None)) -> bool:
             detail="Missing Authorization header",
         )
     parts = authorization.split()
-    if len(parts) != 2 or parts[0].lower() != "bearer" or parts[1] != API_KEY:
+    if len(parts) != 2 or parts[0].lower() != "bearer" or parts[1] != config.API_KEY:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid API key",
@@ -87,14 +87,31 @@ def verify_api_key(authorization: Optional[str] = Header(None)) -> bool:
     return True
 
 
-# Security Dependency for WebUI Admin operations (optional)
-def verify_admin(x_admin_password: Optional[str] = Header(None)) -> bool:
-    if not ADMIN_PASSWORD:
+# Helper to check if current request has valid admin credentials
+def is_admin_authenticated(
+    x_admin_password: Optional[str] = None,
+    liber2api_session: Optional[str] = None,
+) -> bool:
+    if not config.ADMIN_PASSWORD:
         return True
-    if x_admin_password != ADMIN_PASSWORD:
+    if x_admin_password and x_admin_password == config.ADMIN_PASSWORD:
+        return True
+    if liber2api_session:
+        expected = compute_session_token(config.ADMIN_PASSWORD)
+        if hmac.compare_digest(liber2api_session, expected):
+            return True
+    return False
+
+
+# Security Dependency for WebUI Admin operations
+def verify_admin(
+    x_admin_password: Optional[str] = Header(None),
+    liber2api_session: Optional[str] = Cookie(None),
+) -> bool:
+    if not is_admin_authenticated(x_admin_password, liber2api_session):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Unauthorized admin access",
+            detail="Unauthorized admin access. Please login with admin password.",
         )
     return True
 
@@ -103,14 +120,60 @@ def verify_admin(x_admin_password: Optional[str] = Header(None)) -> bool:
 # WebUI & Frontend Routes
 # ---------------------------------------------------------
 
+class AdminLoginRequest(BaseModel):
+    password: str
+
+
+@app.post("/api/admin/login")
+async def admin_login(req: AdminLoginRequest, response: Response):
+    if not config.ADMIN_PASSWORD:
+        return {"success": True, "message": "No admin password configured"}
+
+    if req.password != config.ADMIN_PASSWORD:
+        raise HTTPException(status_code=401, detail="密码错误，请重新输入")
+
+    session_token = compute_session_token(config.ADMIN_PASSWORD)
+    response.set_cookie(
+        key="liber2api_session",
+        value=session_token,
+        httponly=True,
+        samesite="lax",
+        max_age=86400 * 30,  # 30 days
+    )
+    return {"success": True, "message": "登录成功"}
+
+
+@app.post("/api/admin/logout")
+async def admin_logout(response: Response):
+    response.delete_cookie("liber2api_session")
+    return {"success": True, "message": "已退出登录"}
+
+
+@app.get("/api/admin/status")
+async def admin_status(
+    x_admin_password: Optional[str] = Header(None),
+    liber2api_session: Optional[str] = Cookie(None),
+):
+    authenticated = is_admin_authenticated(x_admin_password, liber2api_session)
+    return {
+        "has_admin_pass": bool(config.ADMIN_PASSWORD),
+        "is_authenticated": authenticated,
+    }
+
+
 @app.get("/", response_class=HTMLResponse)
-async def serve_index(request: Request):
+async def serve_index(
+    request: Request,
+    liber2api_session: Optional[str] = Cookie(None),
+):
+    authenticated = is_admin_authenticated(liber2api_session=liber2api_session)
     return templates.TemplateResponse(
         request=request,
         name="index.html",
         context={
-            "api_key": API_KEY,
-            "has_admin_pass": bool(ADMIN_PASSWORD),
+            "api_key": config.API_KEY,
+            "has_admin_pass": bool(config.ADMIN_PASSWORD),
+            "is_authenticated": authenticated,
         },
     )
 
@@ -264,18 +327,21 @@ async def chat_completions(request: Request, _auth: bool = Depends(verify_api_ke
     last_error_status = 503
     last_error_body = {"detail": "No active accounts available in pool."}
 
-    while attempts < MAX_FAILOVER_RETRIES:
+    while attempts < config.MAX_FAILOVER_RETRIES:
         attempts += 1
         account = await pool_manager.get_next_account()
         if not account:
-            logger.warning("No active accounts available in pool (attempt %d/%d)", attempts, MAX_FAILOVER_RETRIES)
+            logger.warning("No active accounts available in pool (attempt %d/%d)", attempts, config.MAX_FAILOVER_RETRIES)
             break
 
         chat_key = account["chat_api_key"]
-        logger.info("Routing request to account %s (%s)", account["email"], "streaming" if stream else "sync")
+        email = account["email"]
+        logger.info("Routing request to account %s (%s)", email, "streaming" if stream else "sync")
 
         if stream:
-            status_code, stream_gen = await client.forward_completion_stream(chat_key, body)
+            status_code, stream_gen = await client.forward_completion_stream(
+                chat_key, body, account_email=email
+            )
             if status_code == 200:
                 await pool_manager.handle_response(account, 200)
                 return StreamingResponse(
@@ -303,7 +369,9 @@ async def chat_completions(request: Request, _auth: bool = Depends(verify_api_ke
                 continue
 
         else:
-            status_code, resp_body = await client.forward_completion_json(chat_key, body)
+            status_code, resp_body = await client.forward_completion_json(
+                chat_key, body, account_email=email
+            )
             if status_code == 200:
                 await pool_manager.handle_response(account, 200)
                 return JSONResponse(content=resp_body, status_code=200)
@@ -320,4 +388,4 @@ async def chat_completions(request: Request, _auth: bool = Depends(verify_api_ke
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app.main:app", host=HOST, port=PORT, reload=True)
+    uvicorn.run("app.main:app", host=config.HOST, port=config.PORT, reload=True)

@@ -84,13 +84,13 @@ class PoolManager:
             return False
 
         try:
-            tokens = await self.client.refresh_tokens(account["refresh_token"])
+            tokens = await self.client.refresh_tokens(account["refresh_token"], account_email=account["email"])
             new_access_token = tokens["access_token"]
             new_refresh_token = tokens["refresh_token"]
 
             # Try to fetch fresh chatApiKey with new access token
             try:
-                new_chat_key = await self.client.fetch_chat_api_key(new_access_token)
+                new_chat_key = await self.client.fetch_chat_api_key(new_access_token, account_email=account["email"])
             except Exception as e:
                 logger.warning("Failed to fetch fresh chatApiKey during refresh, keeping previous: %s", e)
                 new_chat_key = account["chat_api_key"]
@@ -121,7 +121,9 @@ class PoolManager:
             "max_tokens": 5,
         }
         try:
-            status, resp = await self.client.forward_completion_json(account["chat_api_key"], test_payload)
+            status, resp = await self.client.forward_completion_json(
+                account["chat_api_key"], test_payload, account_email=account["email"]
+            )
             if status == 200:
                 await record_account_usage(account_id, success=True)
                 return True, "Account is active and functional."

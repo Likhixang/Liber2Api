@@ -1,4 +1,5 @@
 import os
+import secrets
 from pathlib import Path
 
 # Base Paths
@@ -14,11 +15,17 @@ HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "8000"))
 
 # Security & Authentication
-# If set, WebUI management API requires x-admin-password header or session cookie
+# If set, WebUI management requires entering this password to view and manage pool
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
+SESSION_SECRET = os.getenv("SESSION_SECRET", secrets.token_hex(32))
 
 # If set, downstream clients accessing /v1/chat/completions require Bearer <API_KEY>
 API_KEY = os.getenv("API_KEY", "")
+
+# Resin Sticky Proxy Gateway Integration
+# e.g. "http://127.0.0.1:2260/my-token"
+RESIN_URL = os.getenv("RESIN_URL", "").rstrip("/")
+RESIN_PLATFORM_NAME = os.getenv("RESIN_PLATFORM_NAME", "Default").strip()
 
 # LibertAI Endpoints
 LIBERTAI_INFERENCE_URL = os.getenv("LIBERTAI_INFERENCE_URL", "https://inference.api.libertai.io").rstrip("/")

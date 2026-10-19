@@ -119,3 +119,75 @@ async def test_chat_completions_proxy_mocked():
             data = resp.json()
             assert data["id"] == "chatcmpl-test"
             assert data["choices"][0]["message"]["content"] == "pong"
+
+
+@pytest.mark.asyncio
+async def test_admin_auth_flow():
+    orig_pass = config.ADMIN_PASSWORD
+    config.ADMIN_PASSWORD = "my_admin_secret"
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            # 1. Accessing index without auth should show login gate
+            resp = await client.get("/")
+            assert resp.status_code == 200
+            assert "管理员认证" in resp.text
+            assert "ADMIN_PASSWORD" in resp.text
+
+            # 2. Accessing protected API without auth should fail
+            resp = await client.get("/api/accounts")
+            assert resp.status_code == 401
+
+            # 3. Wrong password should fail
+            resp = await client.post("/api/admin/login", json={"password": "wrong_password"})
+            assert resp.status_code == 401
+
+            # 4. Correct password should succeed and set cookie
+            resp = await client.post("/api/admin/login", json={"password": "my_admin_secret"})
+            assert resp.status_code == 200
+            assert "liber2api_session" in resp.cookies
+
+            # 5. Accessing protected API with cookie should succeed
+            resp = await client.get("/api/accounts")
+            assert resp.status_code == 200
+
+            # 6. Logout
+            resp = await client.post("/api/admin/logout")
+            assert resp.status_code == 200
+
+            # 7. Accessing again should fail
+            resp = await client.get("/api/accounts")
+            assert resp.status_code == 401
+    finally:
+        config.ADMIN_PASSWORD = orig_pass
+
+
+def test_resin_sticky_resolution():
+    from app.libertai_client import resolve_request_endpoint
+
+    # 1. Direct mode without Resin
+    orig_resin = config.RESIN_URL
+    config.RESIN_URL = ""
+    try:
+        url, headers = resolve_request_endpoint(
+            "https://api.libertai.io/v1/chat/completions",
+            account_email="tom@example.com",
+        )
+        assert url == "https://api.libertai.io/v1/chat/completions"
+        assert "X-Resin-Account" not in headers
+
+        # 2. Resin sticky mode
+        config.RESIN_URL = "http://127.0.0.1:2260/my-proxy-token"
+        config.RESIN_PLATFORM_NAME = "Default"
+        url, headers = resolve_request_endpoint(
+            "https://api.libertai.io/v1/chat/completions?stream=true",
+            account_email="tom@example.com",
+            extra_headers={"Content-Type": "application/json"},
+        )
+        expected_url = "http://127.0.0.1:2260/my-proxy-token/Default/https/api.libertai.io/v1/chat/completions?stream=true"
+        assert url == expected_url
+        assert headers["X-Resin-Account"] == "tom@example.com"
+        assert headers["Content-Type"] == "application/json"
+    finally:
+        config.RESIN_URL = orig_resin

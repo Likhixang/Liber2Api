@@ -1,9 +1,21 @@
 <!DOCTYPE html>
-<html lang="zh-CN" class="dark">
+<html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Liber2Api - LibertAI 号池管理网关</title>
+  <!-- Theme Init Script (Prevent Flash of Incorrect Theme) -->
+  <script>
+    (function() {
+      const theme = localStorage.getItem("liber2api_theme") || "system";
+      const isDark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+      if (isDark) {
+        document.documentElement.classList.add("dark");
+      } else {
+        document.documentElement.classList.remove("dark");
+      }
+    })();
+  </script>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/lucide@latest"></script>
   <script>
@@ -33,31 +45,89 @@
     }
   </style>
 </head>
-<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col">
+<body class="bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 min-h-screen flex flex-col transition-colors duration-200">
 
   <!-- Top Navbar -->
-  <header class="border-b border-slate-800 bg-slate-900/60 backdrop-blur sticky top-0 z-50">
+  <header class="border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/60 backdrop-blur sticky top-0 z-50">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
       <div class="flex items-center space-x-3">
         <div class="h-9 w-9 rounded-xl bg-gradient-to-tr from-sky-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-sky-500/20">
           <i data-lucide="cpu" class="w-5 h-5 text-white"></i>
         </div>
         <div>
-          <span class="text-lg font-bold tracking-tight text-white flex items-center gap-2">
+          <span class="text-lg font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
             Liber2Api
-            <span class="text-xs px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-400 border border-sky-500/20">v1.0.0</span>
+            <span class="text-xs px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">v1.1.0</span>
           </span>
-          <p class="text-xs text-slate-400 hidden sm:block">LibertAI 多账号负载均衡与 OpenAI 兼容代理网关</p>
+          <p class="text-xs text-slate-500 dark:text-slate-400 hidden sm:block">LibertAI 多账号负载均衡与 OpenAI 兼容代理网关</p>
         </div>
       </div>
-      <div class="flex items-center space-x-3">
-        <a href="https://github.com/Likhixang/Liber2Api" target="_blank" class="flex items-center space-x-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 transition">
+      <div class="flex items-center space-x-2 sm:space-x-3">
+        <!-- Theme Switcher Dropdown -->
+        <div class="relative" id="theme-menu-container">
+          <button onclick="toggleThemeMenu()" id="theme-btn" class="p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition shadow-sm" title="切换显示主题">
+            <i id="theme-icon-dark" data-lucide="moon" class="w-4 h-4 hidden"></i>
+            <i id="theme-icon-light" data-lucide="sun" class="w-4 h-4 hidden"></i>
+            <i id="theme-icon-system" data-lucide="laptop" class="w-4 h-4 hidden"></i>
+          </button>
+          <div id="theme-menu" class="hidden absolute right-0 mt-2 w-36 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xl py-1 z-50 text-xs">
+            <button onclick="setTheme('light')" class="w-full text-left px-3.5 py-2 flex items-center space-x-2 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 transition">
+              <i data-lucide="sun" class="w-3.5 h-3.5 text-amber-500"></i>
+              <span>浅色模式</span>
+            </button>
+            <button onclick="setTheme('dark')" class="w-full text-left px-3.5 py-2 flex items-center space-x-2 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 transition">
+              <i data-lucide="moon" class="w-3.5 h-3.5 text-sky-400"></i>
+              <span>暗色模式</span>
+            </button>
+            <button onclick="setTheme('system')" class="w-full text-left px-3.5 py-2 flex items-center space-x-2 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 transition">
+              <i data-lucide="laptop" class="w-3.5 h-3.5 text-indigo-400"></i>
+              <span>跟随系统</span>
+            </button>
+          </div>
+        </div>
+
+        {% if has_admin_pass and is_authenticated %}
+        <button onclick="handleAdminLogout()" class="flex items-center space-x-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-slate-600 dark:text-slate-300 hover:text-rose-600 dark:hover:text-rose-400 transition">
+          <i data-lucide="log-out" class="w-3.5 h-3.5"></i>
+          <span>退出登录</span>
+        </button>
+        {% endif %}
+
+        <a href="https://github.com/Likhixang/Liber2Api" target="_blank" class="flex items-center space-x-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition shadow-sm">
           <i data-lucide="github" class="w-4 h-4"></i>
-          <span>GitHub</span>
+          <span class="hidden sm:inline">GitHub</span>
         </a>
       </div>
     </div>
   </header>
+
+  <!-- Login Gate Screen (Shown when ADMIN_PASSWORD is set and user is unauthenticated) -->
+  {% if has_admin_pass and not is_authenticated %}
+  <div class="flex-1 flex items-center justify-center px-4 py-12">
+    <div class="max-w-md w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-8 shadow-xl space-y-6">
+      <div class="text-center space-y-2">
+        <div class="h-12 w-12 mx-auto rounded-2xl bg-gradient-to-tr from-sky-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-sky-500/20 text-white">
+          <i data-lucide="lock" class="w-6 h-6"></i>
+        </div>
+        <h2 class="text-xl font-bold text-slate-900 dark:text-white">管理员认证</h2>
+        <p class="text-xs text-slate-500 dark:text-slate-400">当前节点已开启管理密码保护，请输入管理员密码继续。</p>
+      </div>
+
+      <form onsubmit="handleAdminLogin(event)" class="space-y-4">
+        <div>
+          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">管理密码 (ADMIN_PASSWORD)</label>
+          <input type="password" id="admin-pass-input" placeholder="••••••••" required autofocus class="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-500/50 focus:border-sky-500 transition" />
+        </div>
+        <button type="submit" id="btn-login" class="w-full bg-sky-600 hover:bg-sky-500 text-white font-medium text-sm py-2.5 px-4 rounded-xl flex items-center justify-center space-x-2 transition shadow-lg shadow-sky-600/20 disabled:opacity-50">
+          <i data-lucide="key-round" class="w-4 h-4"></i>
+          <span>登录控制台</span>
+        </button>
+      </form>
+
+      <div id="login-feedback" class="text-xs text-center hidden rounded-lg p-2.5 bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800"></div>
+    </div>
+  </div>
+  {% else %}
 
   <!-- Main Container -->
   <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
@@ -264,8 +334,9 @@
     </div>
 
   </main>
+  {% endif %}
 
-  <footer class="border-t border-slate-800/80 py-4 text-center text-xs text-slate-500">
+  <footer class="border-t border-slate-200 dark:border-slate-800/80 py-4 text-center text-xs text-slate-400 dark:text-slate-500">
     Liber2Api &copy; 2026. Built for LibertAI high-availability model proxying.
   </footer>
 
@@ -273,9 +344,111 @@
     // Initialize icons
     lucide.createIcons();
 
+    // Theme Management
+    function initThemeIcons() {
+      const current = localStorage.getItem("liber2api_theme") || "system";
+      const darkIcon = document.getElementById("theme-icon-dark");
+      const lightIcon = document.getElementById("theme-icon-light");
+      const sysIcon = document.getElementById("theme-icon-system");
+      if (!darkIcon || !lightIcon || !sysIcon) return;
+      darkIcon.classList.add("hidden");
+      lightIcon.classList.add("hidden");
+      sysIcon.classList.add("hidden");
+      if (current === "dark") {
+        darkIcon.classList.remove("hidden");
+      } else if (current === "light") {
+        lightIcon.classList.remove("hidden");
+      } else {
+        sysIcon.classList.remove("hidden");
+      }
+    }
+    initThemeIcons();
+
+    function toggleThemeMenu() {
+      const menu = document.getElementById("theme-menu");
+      if (menu) menu.classList.toggle("hidden");
+    }
+
+    document.addEventListener("click", (e) => {
+      const container = document.getElementById("theme-menu-container");
+      if (container && !container.contains(e.target)) {
+        const menu = document.getElementById("theme-menu");
+        if (menu) menu.classList.add("hidden");
+      }
+    });
+
+    function setTheme(mode) {
+      localStorage.setItem("liber2api_theme", mode);
+      const isDark = mode === "dark" || (mode === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+      if (isDark) {
+        document.documentElement.classList.add("dark");
+      } else {
+        document.documentElement.classList.remove("dark");
+      }
+      initThemeIcons();
+      const menu = document.getElementById("theme-menu");
+      if (menu) menu.classList.add("hidden");
+      lucide.createIcons();
+    }
+
+    // Listen to OS theme changes if on system mode
+    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (e) => {
+      if ((localStorage.getItem("liber2api_theme") || "system") === "system") {
+        if (e.matches) {
+          document.documentElement.classList.add("dark");
+        } else {
+          document.documentElement.classList.remove("dark");
+        }
+      }
+    });
+
+    // Admin Login Handler
+    async function handleAdminLogin(e) {
+      e.preventDefault();
+      const pass = document.getElementById("admin-pass-input").value;
+      const feedback = document.getElementById("login-feedback");
+      const btn = document.getElementById("btn-login");
+      btn.disabled = true;
+      btn.innerText = "正在验证...";
+      feedback.classList.add("hidden");
+
+      try {
+        const resp = await fetch("/api/admin/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ password: pass })
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          throw new Error(data.detail || "密码错误");
+        }
+        window.location.reload();
+      } catch (err) {
+        feedback.innerText = err.message;
+        feedback.classList.remove("hidden");
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = "<i data-lucide=\"key-round\" class=\"w-4 h-4\"></i><span>登录控制台</span>";
+        lucide.createIcons();
+      }
+    }
+
+    // Admin Logout Handler
+    async function handleAdminLogout() {
+      try {
+        await fetch("/api/admin/logout", { method: "POST" });
+        window.location.reload();
+      } catch (err) {
+        console.error("Logout error:", err);
+      }
+    }
+
     // Auto set current host as Base URL
     const currentOrigin = window.location.origin;
-    document.getElementById('base-url-text').innerText = `${currentOrigin}/v1`;
+    const baseUrlElem = document.getElementById("base-url-text");
+    if (baseUrlElem) {
+      baseUrlElem.innerText = `${currentOrigin}/v1`;
+    }
 
     let activeEmail = '';
 
@@ -369,8 +542,15 @@
     }
 
     async function loadAccounts() {
+      const tbody = document.getElementById('accounts-table-body');
+      if (!tbody) return; // If on lock screen
+
       try {
         const resp = await fetch('/api/accounts');
+        if (resp.status === 401) {
+          window.location.reload();
+          return;
+        }
         const data = await resp.json();
         
         // Update stats

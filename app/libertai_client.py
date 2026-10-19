@@ -1,10 +1,7 @@
+from urllib.parse import urlparse
 import httpx
 from typing import Any, AsyncGenerator, Dict, Optional, Tuple
-from app.config import (
-    LIBERTAI_INFERENCE_URL,
-    LIBERTAI_API_URL,
-    REQUEST_TIMEOUT,
-)
+import app.config as config
 
 
 class LibertAIException(Exception):
@@ -14,26 +11,67 @@ class LibertAIException(Exception):
         self.detail = detail
 
 
-class LibertAIClient:
-    """Async client interacting with LibertAI API and Inference backend."""
+def resolve_request_endpoint(
+    target_url: str,
+    account_email: Optional[str] = None,
+    extra_headers: Optional[Dict[str, str]] = None,
+) -> Tuple[str, Dict[str, str]]:
+    """
+    Resolves target URL and request headers according to Resin sticky proxy specification.
 
-    def __init__(self, inference_base: str = LIBERTAI_INFERENCE_URL, api_base: str = LIBERTAI_API_URL):
-        self.inference_base = inference_base.rstrip("/")
-        self.api_base = api_base.rstrip("/")
-        self.timeout = REQUEST_TIMEOUT
+    If config.RESIN_URL is configured:
+      Format: <resin_url>/<Platform>/<protocol>/<host><path_and_query>
+      Header: X-Resin-Account: <account_email> (anchors business account to stable outbound node)
+    Otherwise:
+      Returns target_url directly with standard headers.
+    """
+    headers = dict(extra_headers or {})
+
+    if not config.RESIN_URL:
+        return target_url, headers
+
+    parsed = urlparse(target_url)
+    protocol = parsed.scheme or "https"
+    host = parsed.netloc
+
+    path = parsed.path
+    if not path.startswith("/"):
+        path = "/" + path
+    if parsed.query:
+        path = f"{path}?{parsed.query}"
+
+    resin_base = config.RESIN_URL.rstrip("/")
+    platform = config.RESIN_PLATFORM_NAME or "Default"
+    proxy_url = f"{resin_base}/{platform}/{protocol}/{host}{path}"
+
+    if account_email:
+        headers["X-Resin-Account"] = account_email.strip()
+
+    return proxy_url, headers
+
+
+class LibertAIClient:
+    """Async client interacting with LibertAI API and Inference backend, with Resin sticky support."""
+
+    def __init__(self, inference_base: Optional[str] = None, api_base: Optional[str] = None):
+        self.inference_base = (inference_base or config.LIBERTAI_INFERENCE_URL).rstrip("/")
+        self.api_base = (api_base or config.LIBERTAI_API_URL).rstrip("/")
+        self.timeout = config.REQUEST_TIMEOUT
 
     async def send_login_email(self, email: str) -> bool:
         """
         Trigger LibertAI to send a 6-digit verification code to the given email.
         Calls POST /auth/login/email on inference backend.
         """
-        url = f"{self.inference_base}/auth/login/email"
+        target_url = f"{self.inference_base}/auth/login/email"
+        url, headers = resolve_request_endpoint(target_url, account_email=email)
+        headers["Content-Type"] = "application/json"
         payload = {
             "email": email.strip(),
             "redirect_base": "https://chat.libertai.io",
         }
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            resp = await client.post(url, json=payload)
+            resp = await client.post(url, json=payload, headers=headers)
             if resp.status_code not in (200, 204):
                 error_msg = resp.text
                 try:
@@ -52,15 +90,16 @@ class LibertAIClient:
         """
         Verify the 6-digit code sent to the email.
         Calls POST /auth/verify-magic-link.
-        Returns dict containing access_token, refresh_token, token_type.
         """
-        url = f"{self.inference_base}/auth/verify-magic-link"
+        target_url = f"{self.inference_base}/auth/verify-magic-link"
+        url, headers = resolve_request_endpoint(target_url, account_email=email)
+        headers["Content-Type"] = "application/json"
         payload = {
             "email": email.strip(),
             "code": code.strip(),
         }
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            resp = await client.post(url, json=payload)
+            resp = await client.post(url, json=payload, headers=headers)
             if resp.status_code != 200:
                 error_msg = resp.text
                 try:
@@ -80,13 +119,14 @@ class LibertAIClient:
                 "token_type": data.get("token_type", "bearer"),
             }
 
-    async def fetch_chat_api_key(self, access_token: str) -> str:
+    async def fetch_chat_api_key(self, access_token: str, account_email: Optional[str] = None) -> str:
         """
         Fetch the user's chatApiKey using their access_token.
         Calls GET /api-keys/chat.
         """
-        url = f"{self.inference_base}/api-keys/chat"
-        headers = {"Authorization": f"Bearer {access_token}"}
+        target_url = f"{self.inference_base}/api-keys/chat"
+        headers_in = {"Authorization": f"Bearer {access_token}"}
+        url, headers = resolve_request_endpoint(target_url, account_email=account_email, extra_headers=headers_in)
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             resp = await client.get(url, headers=headers)
             if resp.status_code != 200:
@@ -107,15 +147,17 @@ class LibertAIClient:
                 raise LibertAIException("No key returned in /api-keys/chat response", status_code=500, detail=data)
             return key
 
-    async def refresh_tokens(self, refresh_token: str) -> Dict[str, str]:
+    async def refresh_tokens(self, refresh_token: str, account_email: Optional[str] = None) -> Dict[str, str]:
         """
         Rotate refresh token and receive a fresh token pair.
         Calls POST /auth/refresh with body {"refresh_token": "..."}.
         """
-        url = f"{self.inference_base}/auth/refresh"
+        target_url = f"{self.inference_base}/auth/refresh"
+        headers_in = {"Content-Type": "application/json"}
+        url, headers = resolve_request_endpoint(target_url, account_email=account_email, extra_headers=headers_in)
         payload = {"refresh_token": refresh_token}
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            resp = await client.post(url, json=payload)
+            resp = await client.post(url, json=payload, headers=headers)
             if resp.status_code != 200:
                 error_msg = resp.text
                 try:
@@ -135,13 +177,14 @@ class LibertAIClient:
                 "token_type": data.get("token_type", "bearer"),
             }
 
-    async def get_subscription(self, access_token: str) -> Dict[str, Any]:
+    async def get_subscription(self, access_token: str, account_email: Optional[str] = None) -> Dict[str, Any]:
         """
         Get current subscription and usage limits.
         Calls GET /payments/subscription.
         """
-        url = f"{self.inference_base}/payments/subscription"
-        headers = {"Authorization": f"Bearer {access_token}"}
+        target_url = f"{self.inference_base}/payments/subscription"
+        headers_in = {"Authorization": f"Bearer {access_token}"}
+        url, headers = resolve_request_endpoint(target_url, account_email=account_email, extra_headers=headers_in)
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             resp = await client.get(url, headers=headers)
             if resp.status_code != 200:
@@ -153,9 +196,10 @@ class LibertAIClient:
         Query public available models from LibertAI API.
         Calls GET /v1/models (no auth required).
         """
-        url = f"{self.api_base}/models"
+        target_url = f"{self.api_base}/models"
+        url, headers = resolve_request_endpoint(target_url)
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            resp = await client.get(url)
+            resp = await client.get(url, headers=headers)
             if resp.status_code != 200:
                 raise LibertAIException(
                     f"Failed to list models: {resp.text}",
@@ -164,17 +208,18 @@ class LibertAIClient:
             return resp.json()
 
     async def forward_completion_json(
-        self, chat_api_key: str, payload: dict
+        self, chat_api_key: str, payload: dict, account_email: Optional[str] = None
     ) -> Tuple[int, Dict[str, Any]]:
         """
         Forward non-streaming chat completion to LibertAI.
         Returns (status_code, json_body).
         """
-        url = f"{self.api_base}/chat/completions"
-        headers = {
+        target_url = f"{self.api_base}/chat/completions"
+        headers_in = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {chat_api_key}",
         }
+        url, headers = resolve_request_endpoint(target_url, account_email=account_email, extra_headers=headers_in)
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             resp = await client.post(url, json=payload, headers=headers)
             try:
@@ -184,17 +229,18 @@ class LibertAIClient:
             return resp.status_code, body
 
     async def forward_completion_stream(
-        self, chat_api_key: str, payload: dict
+        self, chat_api_key: str, payload: dict, account_email: Optional[str] = None
     ) -> Tuple[int, AsyncGenerator[bytes, None]]:
         """
         Forward streaming chat completion to LibertAI.
         Returns (status_code, stream_generator).
         """
-        url = f"{self.api_base}/chat/completions"
-        headers = {
+        target_url = f"{self.api_base}/chat/completions"
+        headers_in = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {chat_api_key}",
         }
+        url, headers = resolve_request_endpoint(target_url, account_email=account_email, extra_headers=headers_in)
         client = httpx.AsyncClient(timeout=self.timeout)
         req = client.build_request("POST", url, json=payload, headers=headers)
         resp = await client.send(req, stream=True)
