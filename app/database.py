@@ -103,24 +103,25 @@ async def init_db() -> None:
         )
         await db.commit()
 
-        # Seed default built-in providers if empty
-        cursor = await db.execute("SELECT COUNT(*) FROM mail_providers")
-        cnt_row = await cursor.fetchone()
-        if cnt_row and cnt_row[0] == 0:
-            now = _utc_now_str()
-            defaults = [
-                ("Neighbours 集群 (20+纯净域名)", "neighbours", None, "https://neighbours.sh/api/v1", None, None, "active", 1, now),
-                ("TempMail.ing (CF路由域名)", "tempmail_ing", None, "https://api.tempmail.ing/api", None, None, "active", 2, now),
-                ("MTempMail 备用源", "mtempmail", None, "https://mtempmail.com/api", None, "pub_nRn1hUwpdmZvxQNVWDfoXgKyF7dIm9nRIIIt1qDw", "active", 3, now),
-            ]
-            await db.executemany(
-                """
-                INSERT INTO mail_providers (name, provider_type, domain, api_url, create_url, api_key, status, priority, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                defaults,
-            )
-            await db.commit()
+        # Seed default built-in providers if missing
+        defaults = [
+            ("Neighbours 集群 (20+纯净域名)", "neighbours", None, "https://neighbours.sh/api/v1", None, None, "active", 1),
+            ("TempMail.ing (CF路由域名)", "tempmail_ing", None, "https://api.tempmail.ing/api", None, None, "active", 2),
+            ("MTempMail 备用源", "mtempmail", None, "https://mtempmail.com/api", None, "pub_nRn1hUwpdmZvxQNVWDfoXgKyF7dIm9nRIIIt1qDw", "active", 3),
+            ("TempMail.plus 协议源", "tempmail_plus", None, "https://tempmail.plus/api", None, None, "active", 4),
+        ]
+        now = _utc_now_str()
+        for name, p_type, domain, api_url, create_url, api_key, status, priority in defaults:
+            cursor = await db.execute("SELECT id FROM mail_providers WHERE provider_type = ?", (p_type,))
+            if not await cursor.fetchone():
+                await db.execute(
+                    """
+                    INSERT INTO mail_providers (name, provider_type, domain, api_url, create_url, api_key, status, priority, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (name, p_type, domain, api_url, create_url, api_key, status, priority, now),
+                )
+        await db.commit()
 
 
 async def add_or_update_account(
@@ -534,3 +535,36 @@ async def delete_mail_provider(provider_id: int) -> bool:
         cursor = await db.execute("DELETE FROM mail_providers WHERE id = ?", (provider_id,))
         await db.commit()
         return cursor.rowcount > 0
+
+
+async def reset_builtin_mail_providers() -> None:
+    """Restores all 4 official built-in providers to active state and default URLs."""
+    defaults = [
+        ("Neighbours 集群 (20+纯净域名)", "neighbours", None, "https://neighbours.sh/api/v1", None, None, "active", 1),
+        ("TempMail.ing (CF路由域名)", "tempmail_ing", None, "https://api.tempmail.ing/api", None, None, "active", 2),
+        ("MTempMail 备用源", "mtempmail", None, "https://mtempmail.com/api", None, "pub_nRn1hUwpdmZvxQNVWDfoXgKyF7dIm9nRIIIt1qDw", "active", 3),
+        ("TempMail.plus 协议源", "tempmail_plus", None, "https://tempmail.plus/api", None, None, "active", 4),
+    ]
+    now = _utc_now_str()
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        for name, p_type, domain, api_url, create_url, api_key, status, priority in defaults:
+            cursor = await db.execute("SELECT id FROM mail_providers WHERE provider_type = ?", (p_type,))
+            row = await cursor.fetchone()
+            if row:
+                await db.execute(
+                    """
+                    UPDATE mail_providers
+                    SET name = ?, domain = ?, api_url = ?, create_url = ?, api_key = ?, status = 'active', priority = ?
+                    WHERE id = ?
+                    """,
+                    (name, domain, api_url, create_url, api_key, priority, row[0]),
+                )
+            else:
+                await db.execute(
+                    """
+                    INSERT INTO mail_providers (name, provider_type, domain, api_url, create_url, api_key, status, priority, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)
+                    """,
+                    (name, p_type, domain, api_url, create_url, api_key, priority, now),
+                )
+        await db.commit()

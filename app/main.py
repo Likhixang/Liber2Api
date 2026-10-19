@@ -21,6 +21,7 @@ from app.database import (
     delete_account,
     delete_api_token,
     delete_mail_provider,
+    reset_builtin_mail_providers,
     get_all_accounts,
     get_all_api_tokens,
     get_all_mail_providers,
@@ -304,6 +305,12 @@ async def api_delete_mail_provider(provider_id: int, _admin: bool = Depends(veri
     if not success:
         raise HTTPException(status_code=404, detail="Provider not found")
     return {"success": True, "message": "邮箱 API 已删除"}
+
+
+@app.post("/api/mail-providers/reset-builtins")
+async def api_reset_builtins(_admin: bool = Depends(verify_admin)):
+    await reset_builtin_mail_providers()
+    return {"success": True, "message": "已恢复全部官方内置接码源", "providers": await get_all_mail_providers()}
 
 
 @app.post("/api/mail-providers/test")
