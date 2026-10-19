@@ -84,6 +84,44 @@ async def init_db() -> None:
             await db.execute("ALTER TABLE accounts ADD COLUMN usage_info TEXT NULL")
             await db.commit()
 
+        # Create mail_providers table for dynamic and custom email API management
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS mail_providers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                provider_type TEXT NOT NULL,
+                domain TEXT NULL,
+                api_url TEXT NOT NULL,
+                create_url TEXT NULL,
+                api_key TEXT NULL,
+                status TEXT NOT NULL DEFAULT 'active',
+                priority INTEGER NOT NULL DEFAULT 10,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        await db.commit()
+
+        # Seed default built-in providers if empty
+        cursor = await db.execute("SELECT COUNT(*) FROM mail_providers")
+        cnt_row = await cursor.fetchone()
+        if cnt_row and cnt_row[0] == 0:
+            now = _utc_now_str()
+            defaults = [
+                ("Neighbours 集群 (20+纯净域名)", "neighbours", None, "https://neighbours.sh/api/v1", None, None, "active", 1, now),
+                ("TempMail.ing (CF路由域名)", "tempmail_ing", None, "https://api.tempmail.ing/api", None, None, "active", 2, now),
+                ("MTempMail 备用源", "mtempmail", None, "https://mtempmail.com/api", None, "pub_nRn1hUwpdmZvxQNVWDfoXgKyF7dIm9nRIIIt1qDw", "active", 3, now),
+            ]
+            await db.executemany(
+                """
+                INSERT INTO mail_providers (name, provider_type, domain, api_url, create_url, api_key, status, priority, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                defaults,
+            )
+            await db.commit()
+
 
 async def add_or_update_account(
     email: str,
@@ -427,3 +465,72 @@ async def validate_and_record_token(token_str: str) -> bool:
         )
         await db.commit()
         return True
+
+
+# ---------------------------------------------------------
+# Dynamic & Custom Mail Provider Management
+# ---------------------------------------------------------
+
+async def get_all_mail_providers() -> List[Dict[str, Any]]:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT * FROM mail_providers ORDER BY priority ASC, id ASC")
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+
+
+async def get_active_mail_providers() -> List[Dict[str, Any]]:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT * FROM mail_providers WHERE status = 'active' ORDER BY priority ASC, id ASC")
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+
+
+async def create_mail_provider(
+    name: str,
+    provider_type: str,
+    domain: Optional[str] = None,
+    api_url: str = "",
+    create_url: Optional[str] = None,
+    api_key: Optional[str] = None,
+    priority: int = 10,
+) -> Dict[str, Any]:
+    now = _utc_now_str()
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            """
+            INSERT INTO mail_providers (name, provider_type, domain, api_url, create_url, api_key, status, priority, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)
+            """,
+            (
+                name.strip(),
+                provider_type.strip(),
+                domain.strip() if domain else None,
+                api_url.strip(),
+                create_url.strip() if create_url else None,
+                api_key.strip() if api_key else None,
+                priority,
+                now,
+            ),
+        )
+        await db.commit()
+        new_id = cursor.lastrowid
+        c2 = await db.execute("SELECT * FROM mail_providers WHERE id = ?", (new_id,))
+        row = await c2.fetchone()
+        return dict(row) if row else {}
+
+
+async def update_mail_provider_status(provider_id: int, status: str) -> bool:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cursor = await db.execute("UPDATE mail_providers SET status = ? WHERE id = ?", (status, provider_id))
+        await db.commit()
+        return cursor.rowcount > 0
+
+
+async def delete_mail_provider(provider_id: int) -> bool:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cursor = await db.execute("DELETE FROM mail_providers WHERE id = ?", (provider_id,))
+        await db.commit()
+        return cursor.rowcount > 0

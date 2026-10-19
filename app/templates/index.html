@@ -57,7 +57,7 @@
         <div>
           <span class="text-lg font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
             Liber2Api
-            <span class="text-xs px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">v1.9.0</span>
+            <span class="text-xs px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">v2.0.0</span>
           </span>
           <p class="text-xs text-slate-500 dark:text-slate-400 hidden sm:block">LibertAI 多账号负载均衡与 OpenAI 兼容代理网关</p>
         </div>
@@ -223,6 +223,30 @@
 
           <!-- Alert / Status Text -->
           <div id="wizard-feedback" class="mt-4 text-xs hidden rounded-lg p-2.5"></div>
+
+          <!-- API Keys (多密钥管理) 挪动到获取验证码下方空白处 -->
+          <div class="mt-5 pt-4 border-t border-slate-200 dark:border-slate-800/60">
+            <div class="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800/80 rounded-xl p-3 flex flex-col justify-between">
+              <div class="flex items-center justify-between mb-1.5">
+                <span class="text-slate-600 dark:text-slate-300 font-medium flex items-center gap-1.5 text-xs">
+                  <i data-lucide="key" class="w-3.5 h-3.5 text-amber-500"></i>
+                  <span>API Keys (密钥管理)</span>
+                </span>
+                <button onclick="openTokenModal()" class="text-[11px] text-sky-600 dark:text-sky-400 hover:underline flex items-center gap-1 font-sans">
+                  <span>管理密钥</span>
+                </button>
+              </div>
+              <div class="flex items-center justify-between font-mono text-xs text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900 px-2.5 py-1.5 rounded border border-slate-200 dark:border-slate-800">
+                <span id="api-key-text" class="truncate">{% if api_key %}{{ api_key }}{% else %}免密访问模式（留空即可）{% endif %}</span>
+                <button onclick="copyText('api-key-text')" class="text-slate-400 hover:text-slate-700 dark:hover:text-white transition ml-1" title="复制主可用 API Key">
+                  <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                </button>
+              </div>
+              <p class="mt-1.5 text-[10px] text-slate-400 dark:text-slate-500 leading-normal">
+                客户端通过 Bearer Key 请求 /v1 接口，支持多客户端独立命名与启停。
+              </p>
+            </div>
+          </div>
         </div>
 
         <div class="mt-6 pt-4 border-t border-slate-200 dark:border-slate-800/60 text-[11px] text-slate-400 dark:text-slate-500 flex items-center gap-1.5">
@@ -255,20 +279,21 @@
                 </button>
               </div>
             </div>
+            <!-- 原 API Keys 位置新增 邮箱 API 管理 -->
             <div class="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800/80 rounded-xl p-3 flex flex-col justify-between">
               <div class="flex items-center justify-between mb-1">
                 <span class="text-slate-500 dark:text-slate-400 font-medium flex items-center gap-1.5">
-                  <i data-lucide="key" class="w-3.5 h-3.5 text-amber-500"></i>
-                  <span>API Keys (多密钥)</span>
+                  <i data-lucide="mail-check" class="w-3.5 h-3.5 text-violet-500"></i>
+                  <span>邮箱 API 管理 (接码)</span>
                 </span>
-                <button onclick="openTokenModal()" class="text-[11px] text-sky-600 dark:text-sky-400 hover:underline flex items-center gap-1 font-sans">
-                  <span>管理密钥</span>
+                <button onclick="openMailProviderModal()" class="text-[11px] text-violet-600 dark:text-violet-400 hover:underline flex items-center gap-1 font-sans">
+                  <span>配置接口</span>
                 </button>
               </div>
               <div class="flex items-center justify-between font-mono text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900 px-2 py-1.5 rounded border border-slate-200 dark:border-slate-800">
-                <span id="api-key-text" class="truncate">{% if api_key %}{{ api_key }}{% else %}免密访问模式（留空即可）{% endif %}</span>
-                <button onclick="copyText('api-key-text')" class="text-slate-400 hover:text-slate-700 dark:hover:text-white transition ml-1" title="复制主可用令牌">
-                  <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                <span id="mail-providers-display" class="truncate text-[11px]">加载中...</span>
+                <button onclick="openMailProviderModal()" class="text-slate-400 hover:text-violet-500 transition ml-1" title="管理邮箱接码接口">
+                  <i data-lucide="sliders" class="w-3.5 h-3.5"></i>
                 </button>
               </div>
             </div>
@@ -499,6 +524,105 @@
     </div>
   </div>
 
+  <!-- Mail Providers Management Modal (支持自定义邮箱 API) -->
+  <div id="mail-provider-modal" class="fixed inset-0 z-50 bg-slate-900/40 dark:bg-slate-950/70 backdrop-blur-sm hidden flex items-center justify-center p-4">
+    <div class="max-w-3xl w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-2xl space-y-5 max-h-[90vh] flex flex-col">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800 shrink-0">
+        <div class="flex items-center space-x-2">
+          <div class="p-1.5 rounded-lg bg-violet-50 dark:bg-violet-950/50 text-violet-600 dark:text-violet-400 border border-violet-200 dark:border-violet-800/40">
+            <i data-lucide="mail-check" class="w-4 h-4"></i>
+          </div>
+          <div>
+            <h3 class="text-sm font-semibold text-slate-900 dark:text-white">邮箱接码 API 管理 (支持自定义接入)</h3>
+            <p class="text-[11px] text-slate-500 dark:text-slate-400">系统支持自定义接入私有 Cloudflare Email Worker、自建 Webhook 或第三方接码服务，避免公网临时源失效。</p>
+          </div>
+        </div>
+        <button onclick="closeMailProviderModal()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <!-- Add New Custom Provider Form -->
+      <div class="p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3 shrink-0">
+        <div class="text-xs font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+          <i data-lucide="plus-circle" class="w-3.5 h-3.5 text-violet-500"></i>
+          <span>添加自定义邮箱接码接口</span>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+          <div>
+            <label class="block font-medium text-slate-700 dark:text-slate-300 mb-1">接口名称 *</label>
+            <input type="text" id="new-mail-name" placeholder="如: 我的 Cloudflare 接码" class="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500/50" />
+          </div>
+          <div>
+            <label class="block font-medium text-slate-700 dark:text-slate-300 mb-1">接口协议类型 *</label>
+            <select id="new-mail-type" onchange="handleMailTypeChange()" class="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-violet-500/50">
+              <option value="custom_http">通用 HTTP / Webhook API (支持自建/Worker)</option>
+              <option value="neighbours">Neighbours 集群协议</option>
+              <option value="tempmail_plus">TempMail.plus 协议</option>
+              <option value="mtempmail">MTempMail 协议</option>
+            </select>
+          </div>
+          <div>
+            <label class="block font-medium text-slate-700 dark:text-slate-300 mb-1">自定义固定域名 (可选)</label>
+            <input type="text" id="new-mail-domain" placeholder="如: mail.mydomain.com (留空则由接口分配)" class="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500/50" />
+          </div>
+          <div>
+            <label class="block font-medium text-slate-700 dark:text-slate-300 mb-1">优先级 (1-100，越小越优先)</label>
+            <input type="number" id="new-mail-priority" value="5" min="1" max="100" class="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500/50" />
+          </div>
+          <div class="sm:col-span-2">
+            <label class="block font-medium text-slate-700 dark:text-slate-300 mb-1">轮询/读取邮件 URL *</label>
+            <input type="text" id="new-mail-api-url" placeholder="如: https://worker.dev/inbox?email={email} (支持 {email} 占位符)" class="w-full font-mono text-xs bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500/50" />
+          </div>
+          <div>
+            <label class="block font-medium text-slate-700 dark:text-slate-300 mb-1">生成邮箱地址 URL (可选)</label>
+            <input type="text" id="new-mail-create-url" placeholder="如: https://worker.dev/new (留空则按域名随机生成)" class="w-full font-mono text-xs bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500/50" />
+          </div>
+          <div>
+            <label class="block font-medium text-slate-700 dark:text-slate-300 mb-1">API Key / Token (可选)</label>
+            <input type="password" id="new-mail-key" placeholder="Bearer Token 或 X-API-Key" class="w-full font-mono text-xs bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500/50" />
+          </div>
+        </div>
+        <div class="flex justify-end gap-2 pt-1">
+          <button onclick="testNewMailProvider()" type="button" class="px-3.5 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-medium transition">
+            测试连通性
+          </button>
+          <button onclick="createMailProvider()" id="btn-create-mail-provider" class="px-4 py-1.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-white font-medium text-xs shadow-sm transition">
+            添加接口
+          </button>
+        </div>
+      </div>
+
+      <!-- Providers List Table -->
+      <div class="flex-1 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-800">
+        <table class="w-full text-left text-xs">
+          <thead class="bg-slate-50 dark:bg-slate-950/60 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800 sticky top-0">
+            <tr>
+              <th class="py-2.5 px-3 font-medium">名称</th>
+              <th class="py-2.5 px-3 font-medium">类型</th>
+              <th class="py-2.5 px-3 font-medium">接口 / 域名</th>
+              <th class="py-2.5 px-3 font-medium">优先级</th>
+              <th class="py-2.5 px-3 font-medium">状态</th>
+              <th class="py-2.5 px-3 font-medium text-right">操作</th>
+            </tr>
+          </thead>
+          <tbody id="mail-providers-tbody" class="divide-y divide-slate-200 dark:divide-slate-800/60 font-mono text-slate-700 dark:text-slate-300">
+            <tr>
+              <td colspan="6" class="py-6 text-center text-slate-400 dark:text-slate-500">正在加载邮箱接口列表...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="pt-2 border-t border-slate-200 dark:border-slate-800 flex justify-between items-center text-[11px] text-slate-400 dark:text-slate-500 shrink-0">
+        <span>优先级数值越小越先被调用；自定义接口优先于内置接口轮询。</span>
+        <button onclick="closeMailProviderModal()" class="px-4 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-medium transition">
+          关闭
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- Global Web-Native Toast Notification Container -->
   <div id="toast-container" class="fixed top-5 right-5 z-50 flex flex-col space-y-2.5 max-w-sm pointer-events-none"></div>
 
@@ -511,9 +635,13 @@
     lucide.createIcons();
 
         // Global Web-Native Toast Notification System
-    function showToast(message, type = 'info', duration = 3500) {
+    function showToast(message, type = 'info', duration = null) {
       const container = document.getElementById('toast-container');
       if (!container) return;
+
+      if (!duration) {
+        duration = (type === 'error') ? 8000 : 3500;
+      }
 
       const toast = document.createElement('div');
       toast.className = 'pointer-events-auto flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-xl border text-xs font-medium transition-all duration-300 transform translate-y-2 opacity-0 backdrop-blur-md';
@@ -533,10 +661,16 @@
       }
 
       toast.className += ' ' + styleClasses;
+
+      const copyBtn = (type === 'error')
+        ? `<button onclick="copyRawError(this)" class="text-rose-400 hover:text-rose-600 dark:hover:text-rose-200 ml-1.5 p-0.5" title="复制完整报错信息"><i data-lucide="copy" class="w-3.5 h-3.5"></i></button>`
+        : '';
+
       toast.innerHTML = `
         <i data-lucide="${icon}" class="w-4 h-4 shrink-0"></i>
-        <span class="flex-1 leading-snug">${escapeHtml(message)}</span>
-        <button onclick="this.parentElement.remove()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 ml-1">
+        <span class="flex-1 leading-snug error-msg-content">${escapeHtml(message)}</span>
+        ${copyBtn}
+        <button onclick="this.closest('.pointer-events-auto').remove()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 ml-1">
           <i data-lucide="x" class="w-3.5 h-3.5"></i>
         </button>
       `;
@@ -550,10 +684,18 @@
       });
 
       setTimeout(() => {
-        toast.classList.remove('translate-y-0', 'opacity-100');
-        toast.classList.add('-translate-y-2', 'opacity-0');
-        setTimeout(() => toast.remove(), 300);
+        if (toast.parentElement) {
+          toast.classList.remove('translate-y-0', 'opacity-100');
+          toast.classList.add('-translate-y-2', 'opacity-0');
+          setTimeout(() => toast.remove(), 300);
+        }
       }, duration);
+    }
+
+    function copyRawError(btn) {
+      const text = btn.parentElement.querySelector('.error-msg-content')?.textContent || '';
+      navigator.clipboard.writeText(text);
+      showToast('已复制完整错误信息！', 'info', 2000);
     }
 
     // Theme Management
@@ -1176,9 +1318,229 @@
       return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
 
+    // Mail Providers Management (支持自定义邮箱接码接口)
+    function openMailProviderModal() {
+      const modal = document.getElementById('mail-provider-modal');
+      if (modal) modal.classList.remove('hidden');
+      loadMailProviders();
+    }
+
+    function closeMailProviderModal() {
+      const modal = document.getElementById('mail-provider-modal');
+      if (modal) modal.classList.add('hidden');
+    }
+
+    function handleMailTypeChange() {
+      const type = document.getElementById('new-mail-type').value;
+      const apiInput = document.getElementById('new-mail-api-url');
+      if (type === 'neighbours') {
+        apiInput.value = 'https://neighbours.sh/api/v1';
+      } else if (type === 'tempmail_plus') {
+        apiInput.value = 'https://tempmail.plus/api';
+      } else if (type === 'mtempmail') {
+        apiInput.value = 'https://mtempmail.com/api';
+      } else if (type === 'custom_http' && (apiInput.value.includes('neighbours') || apiInput.value.includes('tempmail'))) {
+        apiInput.value = '';
+      }
+    }
+
+    async function loadMailProviders() {
+      try {
+        const resp = await fetch('/api/mail-providers');
+        if (!resp.ok) return;
+        const data = await resp.json();
+        const providers = data.providers || [];
+
+        // Update display card in dashboard
+        const display = document.getElementById('mail-providers-display');
+        if (display) {
+          const activeCount = providers.filter(p => p.status === 'active').length;
+          display.textContent = `${activeCount} 个可用接口 (支持自定义)`;
+        }
+
+        const tbody = document.getElementById('mail-providers-tbody');
+        if (!tbody) return;
+
+        if (providers.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="6" class="py-6 text-center text-slate-400 dark:text-slate-500">暂无接口，请在上方添加自定义接口。</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = providers.map(p => {
+          const isActive = p.status === 'active';
+          const typeLabel = p.provider_type === 'custom_http' ? '自定义HTTP' : `内置:${p.provider_type}`;
+          const typeBadge = p.provider_type === 'custom_http'
+            ? `<span class="px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 text-[10px]">${typeLabel}</span>`
+            : `<span class="px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20 text-[10px]">${typeLabel}</span>`;
+          const endpointDisplay = p.domain ? `@${p.domain}` : (p.api_url ? p.api_url.replace('https://', '') : '-');
+
+          return `
+            <tr class="hover:bg-slate-50/50 dark:hover:bg-slate-900/50 transition font-sans">
+              <td class="py-2.5 px-3 font-medium text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                <i data-lucide="mail" class="w-3.5 h-3.5 text-slate-400"></i>
+                <span>${escapeHtml(p.name)}</span>
+              </td>
+              <td class="py-2.5 px-3">${typeBadge}</td>
+              <td class="py-2.5 px-3 font-mono text-[11px] truncate max-w-[180px]" title="${escapeHtml(p.api_url || '')}">
+                ${escapeHtml(endpointDisplay)}
+              </td>
+              <td class="py-2.5 px-3 font-mono text-slate-500 dark:text-slate-400">${p.priority}</td>
+              <td class="py-2.5 px-3">
+                <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium ${isActive ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20' : 'bg-slate-500/10 text-slate-500 border border-slate-500/20'}">
+                  <span class="w-1.5 h-1.5 rounded-full ${isActive ? 'bg-emerald-500' : 'bg-slate-400'}"></span>
+                  <span>${isActive ? '已启用' : '已停用'}</span>
+                </span>
+              </td>
+              <td class="py-2.5 px-3 text-right space-x-1 shrink-0">
+                <button onclick="testExistingMailProvider(${p.id}, '${escapeHtml(p.name)}', '${p.provider_type}', '${escapeHtml(p.api_url || '')}', '${escapeHtml(p.create_url || '')}', '${escapeHtml(p.domain || '')}')" class="px-2 py-1 rounded bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-[11px] transition">
+                  测试
+                </button>
+                <button onclick="toggleMailProvider(${p.id}, '${isActive ? 'disabled' : 'active'}')" class="px-2 py-1 rounded ${isActive ? 'bg-amber-500/10 text-amber-600 hover:bg-amber-500/20' : 'bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20'} text-[11px] transition">
+                  ${isActive ? '停用' : '启用'}
+                </button>
+                <button onclick="deleteMailProvider(${p.id})" class="px-2 py-1 rounded bg-rose-500/10 text-rose-600 hover:bg-rose-500/20 text-[11px] transition">
+                  删除
+                </button>
+              </td>
+            </tr>
+          `;
+        }).join('');
+        lucide.createIcons();
+      } catch (err) {
+        console.error('Failed to load mail providers:', err);
+      }
+    }
+
+    async function createMailProvider() {
+      const name = document.getElementById('new-mail-name').value.trim();
+      const p_type = document.getElementById('new-mail-type').value;
+      const domain = document.getElementById('new-mail-domain').value.trim();
+      const priority = parseInt(document.getElementById('new-mail-priority').value, 10) || 10;
+      const api_url = document.getElementById('new-mail-api-url').value.trim();
+      const create_url = document.getElementById('new-mail-create-url').value.trim();
+      const api_key = document.getElementById('new-mail-key').value.trim();
+
+      if (!name) {
+        showToast('请输入接口名称', 'warning');
+        return;
+      }
+      if (p_type === 'custom_http' && !api_url && !domain) {
+        showToast('自定义接口必须填写 轮询URL 或 自定义域名', 'warning');
+        return;
+      }
+
+      try {
+        const resp = await fetch('/api/mail-providers', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name,
+            provider_type: p_type,
+            domain: domain || null,
+            priority,
+            api_url,
+            create_url: create_url || null,
+            api_key: api_key || null
+          })
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail || '添加失败');
+
+        showToast('自定义邮箱接口已成功添加！', 'success');
+        document.getElementById('new-mail-name').value = '';
+        document.getElementById('new-mail-domain').value = '';
+        document.getElementById('new-mail-api-url').value = '';
+        document.getElementById('new-mail-create-url').value = '';
+        document.getElementById('new-mail-key').value = '';
+        loadMailProviders();
+      } catch (err) {
+        showToast('添加接口失败: ' + err.message, 'error');
+      }
+    }
+
+    async function toggleMailProvider(id, newStatus) {
+      try {
+        const resp = await fetch(`/api/mail-providers/${id}/status`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: newStatus })
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail || '更新失败');
+        showToast('接口状态已更新！', 'success');
+        loadMailProviders();
+      } catch (err) {
+        showToast('修改失败: ' + err.message, 'error');
+      }
+    }
+
+    async function deleteMailProvider(id) {
+      if (!confirm('确定要删除此邮箱接码接口吗？')) return;
+      try {
+        const resp = await fetch(`/api/mail-providers/${id}`, { method: 'DELETE' });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail || '删除失败');
+        showToast('接口已删除', 'success');
+        loadMailProviders();
+      } catch (err) {
+        showToast('删除失败: ' + err.message, 'error');
+      }
+    }
+
+    async function testNewMailProvider() {
+      const name = document.getElementById('new-mail-name').value.trim() || '未命名测试';
+      const p_type = document.getElementById('new-mail-type').value;
+      const domain = document.getElementById('new-mail-domain').value.trim();
+      const api_url = document.getElementById('new-mail-api-url').value.trim();
+      const create_url = document.getElementById('new-mail-create-url').value.trim();
+      const api_key = document.getElementById('new-mail-key').value.trim();
+
+      showToast('正在测试接口连通性...', 'info');
+      try {
+        const resp = await fetch('/api/mail-providers/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name,
+            provider_type: p_type,
+            domain: domain || null,
+            api_url,
+            create_url: create_url || null,
+            api_key: api_key || null
+          })
+        });
+        const data = await resp.json();
+        showToast(data.message || (data.success ? '接口测试正常' : '测试失败'), data.success ? 'success' : 'error');
+      } catch (err) {
+        showToast('测试异常: ' + err.message, 'error');
+      }
+    }
+
+    async function testExistingMailProvider(id, name, provider_type, api_url, create_url, domain) {
+      showToast(`正在测试 [${name}] 接口...`, 'info');
+      try {
+        const resp = await fetch('/api/mail-providers/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name,
+            provider_type,
+            api_url,
+            create_url: create_url || null,
+            domain: domain || null
+          })
+        });
+        const data = await resp.json();
+        showToast(`[${name}] ${data.message}`, data.success ? 'success' : 'error');
+      } catch (err) {
+        showToast('测试异常: ' + err.message, 'error');
+      }
+    }
+
     // Initial load
     loadAccounts();
     loadProxySettings();
+    loadMailProviders();
 
     // Auto-recover login state if session expired on fresh tab
     (async function checkAutoLogin() {

@@ -423,3 +423,51 @@ async def test_proxy_settings_api():
         assert data2["resin_url"] == "http://127.0.0.1:2260/test"
         assert data2["resin_platform_name"] == "TestPlatform"
 
+
+@pytest.mark.asyncio
+async def test_mail_providers_api():
+    from app.main import app
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        # 1. List mail providers (default seeded should exist)
+        resp = await client.get("/api/mail-providers")
+        assert resp.status_code == 200
+        providers = resp.json()["providers"]
+        assert len(providers) >= 1
+
+        # 2. Add custom mail provider
+        resp = await client.post(
+            "/api/mail-providers",
+            json={
+                "name": "My Custom Worker",
+                "provider_type": "custom_http",
+                "domain": "my-domain.org",
+                "api_url": "https://worker.dev/inbox?email={email}",
+                "priority": 5,
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        p_id = data["provider"]["id"]
+
+        # 3. Toggle status
+        resp = await client.patch(f"/api/mail-providers/{p_id}/status", json={"status": "disabled"})
+        assert resp.status_code == 200
+
+        # 4. Test provider endpoint
+        resp = await client.post(
+            "/api/mail-providers/test",
+            json={
+                "name": "Test",
+                "provider_type": "custom_http",
+                "domain": "test.org",
+                "api_url": "https://example.com/test",
+            },
+        )
+        assert resp.status_code == 200
+
+        # 5. Delete provider
+        resp = await client.delete(f"/api/mail-providers/{p_id}")
+        assert resp.status_code == 200
+

@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
+import httpx
 
 import app.config as config
 from app.database import (
@@ -19,15 +20,19 @@ from app.database import (
     create_api_token,
     delete_account,
     delete_api_token,
+    delete_mail_provider,
     get_all_accounts,
     get_all_api_tokens,
+    get_all_mail_providers,
     get_effective_proxy_settings,
     get_pool_summary,
     get_setting,
     init_db,
     set_setting,
+    create_mail_provider,
     update_account_usage,
     update_api_token_status,
+    update_mail_provider_status,
     validate_and_record_token,
 )
 from app.libertai_client import LibertAIClient, LibertAIException
@@ -69,7 +74,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Liber2Api",
-    version="1.9.0",
+    version="2.0.0",
     description="High-availability OpenAI-compatible 2API proxy with account pool management for LibertAI.",
     lifespan=lifespan,
 )
@@ -245,6 +250,93 @@ async def api_delete_token(token_id: int, _admin: bool = Depends(verify_admin)):
     if not success:
         raise HTTPException(status_code=404, detail="Token not found")
     return {"success": True, "message": "令牌已删除"}
+
+
+# ---------------------------------------------------------
+# Mail Provider Endpoints (Built-in & Custom Mail APIs)
+# ---------------------------------------------------------
+
+class CreateMailProviderRequest(BaseModel):
+    name: str = Field(..., min_length=1)
+    provider_type: str = Field(default="custom_http")  # custom_http, neighbours, tempmail_plus, mtempmail, tempmail_ing
+    domain: Optional[str] = None
+    api_url: str = Field(default="")
+    create_url: Optional[str] = None
+    api_key: Optional[str] = None
+    priority: int = Field(default=10)
+
+
+class UpdateMailProviderStatusRequest(BaseModel):
+    status: str = Field(..., pattern="^(active|disabled)$")
+
+
+@app.get("/api/mail-providers")
+async def api_list_mail_providers(_admin: bool = Depends(verify_admin)):
+    providers = await get_all_mail_providers()
+    return {"providers": providers}
+
+
+@app.post("/api/mail-providers")
+async def api_create_mail_provider(req: CreateMailProviderRequest, _admin: bool = Depends(verify_admin)):
+    provider = await create_mail_provider(
+        name=req.name,
+        provider_type=req.provider_type,
+        domain=req.domain,
+        api_url=req.api_url,
+        create_url=req.create_url,
+        api_key=req.api_key,
+        priority=req.priority,
+    )
+    return {"success": True, "message": "邮箱 API 添加成功", "provider": provider}
+
+
+@app.patch("/api/mail-providers/{provider_id}/status")
+async def api_update_mail_provider_status(provider_id: int, req: UpdateMailProviderStatusRequest, _admin: bool = Depends(verify_admin)):
+    success = await update_mail_provider_status(provider_id, req.status)
+    if not success:
+        raise HTTPException(status_code=404, detail="Provider not found")
+    return {"success": True, "message": "邮箱 API 状态已更新"}
+
+
+@app.delete("/api/mail-providers/{provider_id}")
+async def api_delete_mail_provider(provider_id: int, _admin: bool = Depends(verify_admin)):
+    success = await delete_mail_provider(provider_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Provider not found")
+    return {"success": True, "message": "邮箱 API 已删除"}
+
+
+@app.post("/api/mail-providers/test")
+async def api_test_mail_provider(req: CreateMailProviderRequest, _admin: bool = Depends(verify_admin)):
+    try:
+        from app.libertai_client import resolve_forward_proxy
+        proxy = resolve_forward_proxy()
+        async with httpx.AsyncClient(timeout=10.0, proxy=proxy) as client:
+            p_type = req.provider_type
+            if p_type == "custom_http":
+                if req.create_url:
+                    headers = {"Authorization": f"Bearer {req.api_key}"} if req.api_key else {}
+                    r = await client.get(req.create_url, headers=headers)
+                    return {"success": r.status_code in [200, 201], "message": f"创建接口测试响应状态码: {r.status_code}"}
+                elif req.api_url:
+                    test_url = req.api_url.format(email="test@example.com") if "{email}" in req.api_url else f"{req.api_url}?email=test@example.com"
+                    headers = {"Authorization": f"Bearer {req.api_key}"} if req.api_key else {}
+                    r = await client.get(test_url, headers=headers)
+                    return {"success": r.status_code in [200, 204, 404], "message": f"轮询接口测试连通正常 (HTTP {r.status_code})"}
+                elif req.domain:
+                    return {"success": True, "message": f"已配置自定义固定域名 @{req.domain}"}
+            elif p_type == "neighbours":
+                r = await client.get("https://neighbours.sh/api/v1/config/domains")
+                return {"success": r.status_code == 200, "message": f"Neighbours 集群连通正常 (HTTP {r.status_code})"}
+            elif p_type == "tempmail_ing":
+                r = await client.get("https://tempmail.ing/")
+                return {"success": r.status_code == 200, "message": f"TempMail.ing 连通正常 (HTTP {r.status_code})"}
+            elif p_type == "mtempmail":
+                r = await client.get("https://mtempmail.com/api/domains/pub_nRn1hUwpdmZvxQNVWDfoXgKyF7dIm9nRIIIt1qDw/all")
+                return {"success": r.status_code == 200, "message": f"MTempMail 连通正常 (HTTP {r.status_code})"}
+            return {"success": True, "message": "配置验证通过"}
+    except Exception as e:
+        return {"success": False, "message": f"测试失败: {str(e)}"}
 
 
 class ProxySettingsRequest(BaseModel):
