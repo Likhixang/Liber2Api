@@ -239,10 +239,15 @@
                 </button>
               </div>
               <div class="flex items-center justify-between font-mono text-xs text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900 px-2.5 py-1.5 rounded border border-slate-200 dark:border-slate-800">
-                <span id="api-key-text" class="truncate">{% if api_key %}{{ api_key }}{% else %}免密访问模式（留空即可）{% endif %}</span>
-                <button onclick="copyText('api-key-text')" class="text-slate-400 hover:text-slate-700 dark:hover:text-white transition ml-1" title="复制主可用 API Key">
-                  <i data-lucide="copy" class="w-3.5 h-3.5"></i>
-                </button>
+                <span id="api-key-text" data-raw="{% if api_key %}{{ api_key }}{% endif %}" data-masked="true" class="truncate font-mono">{% if api_key %}{{ api_key[:8] }}********{{ api_key[-4:] }}{% else %}免密访问模式（留空即可）{% endif %}</span>
+                <div class="flex items-center space-x-1 shrink-0 ml-1">
+                  <button onclick="toggleMask('api-key-text', 'api-key-eye')" id="api-key-eye" class="text-slate-400 hover:text-slate-700 dark:hover:text-white transition p-0.5 rounded" title="显示/隐藏完整密钥">
+                    <i data-lucide="eye" class="w-3.5 h-3.5"></i>
+                  </button>
+                  <button onclick="copyText('api-key-text')" class="text-slate-400 hover:text-slate-700 dark:hover:text-white transition p-0.5 rounded" title="复制主可用 API Key">
+                    <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                  </button>
+                </div>
               </div>
               <p class="mt-1.5 text-[10px] text-slate-400 dark:text-slate-500 leading-normal">
                 客户端通过 Bearer Key 请求 /v1 接口，支持多客户端独立命名与启停。
@@ -275,10 +280,15 @@
                 <span>Base URL (基础接口地址)</span>
               </div>
               <div class="flex items-center justify-between font-mono text-sky-600 dark:text-sky-400 bg-white dark:bg-slate-900 px-2 py-1.5 rounded border border-slate-200 dark:border-slate-800">
-                <span id="base-url-text" class="truncate">http://localhost:8000/v1</span>
-                <button onclick="copyText('base-url-text')" class="text-slate-400 hover:text-slate-700 dark:hover:text-white transition ml-1" title="复制 Base URL">
-                  <i data-lucide="copy" class="w-3.5 h-3.5"></i>
-                </button>
+                <span id="base-url-text" data-raw="" data-masked="true" class="truncate font-mono">http://********8000/v1</span>
+                <div class="flex items-center space-x-1 shrink-0 ml-1">
+                  <button onclick="toggleMask('base-url-text', 'base-url-eye')" id="base-url-eye" class="text-slate-400 hover:text-slate-700 dark:hover:text-white transition p-0.5 rounded" title="显示/隐藏完整地址">
+                    <i data-lucide="eye" class="w-3.5 h-3.5"></i>
+                  </button>
+                  <button onclick="copyText('base-url-text')" class="text-slate-400 hover:text-slate-700 dark:hover:text-white transition p-0.5 rounded" title="复制 Base URL">
+                    <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                  </button>
+                </div>
               </div>
             </div>
             <!-- 原 API Keys 位置新增 邮箱 API 管理 -->
@@ -803,10 +813,7 @@
 
     // Auto set current host as Base URL
     const currentOrigin = window.location.origin;
-    const baseUrlElem = document.getElementById("base-url-text");
-    if (baseUrlElem) {
-      baseUrlElem.innerText = `${currentOrigin}/v1`;
-    }
+    setMaskedElementValue("base-url-text", `${currentOrigin}/v1`);
 
 
     // Resin & Proxy Settings Management
@@ -949,6 +956,18 @@
             : '已关闭校验：处于免密模式，任意客户端均可直接调用接口';
         }
 
+        // Update dashboard API key display
+        const keyDisp = document.getElementById('api-key-text');
+        if (keyDisp) {
+          if (!data.auth_enabled) {
+            keyDisp.removeAttribute('data-raw');
+            keyDisp.innerText = '免密访问模式（留空即可）';
+          } else if (data.tokens && data.tokens.length > 0) {
+            const activeT = data.tokens.find(t => t.status === 'active') || data.tokens[0];
+            setMaskedElementValue('api-key-text', activeT.token);
+          }
+        }
+
         // Render tokens table
         if (!data.tokens || data.tokens.length === 0) {
           tbody.innerHTML = '<tr><td colspan="5" class="py-6 text-center text-slate-400 dark:text-slate-500">暂无令牌，请在上方添加新令牌。</td></tr>';
@@ -1017,9 +1036,8 @@
         document.getElementById('new-token-val').value = '';
         loadTokens();
         // Update display on dashboard
-        const disp = document.getElementById('api-key-text');
-        if (disp && data.token) {
-          disp.innerText = data.token.token;
+        if (data.token) {
+          setMaskedElementValue('api-key-text', data.token.token);
         }
       } catch (err) {
         showToast('创建密钥失败: ' + err.message, 'error');
@@ -1308,10 +1326,68 @@
       }
     }
 
+    function maskValue(str) {
+      if (!str || str.includes('免密访问模式')) return str;
+      if (str.startsWith('http://') || str.startsWith('https://')) {
+        try {
+          const u = new URL(str);
+          const host = u.host;
+          let maskedHost = host;
+          if (host.length > 8) {
+            const part1 = host.slice(0, 3);
+            const part2 = host.slice(-4);
+            maskedHost = `${part1}****${part2}`;
+          } else {
+            maskedHost = '****';
+          }
+          return `${u.protocol}//${maskedHost}${u.pathname}${u.search}`;
+        } catch (e) {
+          const head = str.slice(0, 8);
+          const tail = str.slice(-4);
+          return `${head}****${tail}`;
+        }
+      }
+      if (str.length > 12) {
+        const head = str.slice(0, 8);
+        const tail = str.slice(-4);
+        return `${head}********${tail}`;
+      }
+      return str.slice(0, 2) + '****' + str.slice(-2);
+    }
+
+    function setMaskedElementValue(id, rawVal) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.setAttribute('data-raw', rawVal || '');
+      const isMasked = el.getAttribute('data-masked') !== 'false';
+      el.innerText = isMasked ? maskValue(rawVal) : (rawVal || '');
+    }
+
+    function toggleMask(textId, eyeBtnId) {
+      const el = document.getElementById(textId);
+      const btn = document.getElementById(eyeBtnId);
+      if (!el) return;
+
+      const rawVal = el.getAttribute('data-raw') || el.innerText;
+      const currentlyMasked = el.getAttribute('data-masked') !== 'false';
+      const willMask = !currentlyMasked;
+
+      el.setAttribute('data-masked', willMask ? 'true' : 'false');
+      el.innerText = willMask ? maskValue(rawVal) : rawVal;
+
+      if (btn) {
+        const iconName = willMask ? 'eye' : 'eye-off';
+        btn.innerHTML = `<i data-lucide="${iconName}" class="w-3.5 h-3.5"></i>`;
+        lucide.createIcons();
+      }
+    }
+
     function copyText(elementId) {
-      const text = document.getElementById(elementId).innerText;
+      const el = document.getElementById(elementId);
+      if (!el) return;
+      const text = el.getAttribute('data-raw') || el.innerText;
       navigator.clipboard.writeText(text).then(() => {
-        showToast('已成功复制到剪贴板！', 'success');
+        showToast('已成功复制完整内容到剪贴板！', 'success');
       });
     }
 
@@ -1543,6 +1619,15 @@
     loadAccounts();
     loadProxySettings();
     loadMailProviders();
+
+    // Initialize masked display for API key
+    const initKeyEl = document.getElementById('api-key-text');
+    if (initKeyEl) {
+      const rawKey = initKeyEl.getAttribute('data-raw');
+      if (rawKey && !rawKey.includes('免密访问模式')) {
+        setMaskedElementValue('api-key-text', rawKey);
+      }
+    }
 
     // Auto-recover login state if session expired on fresh tab
     (async function checkAutoLogin() {
