@@ -74,7 +74,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Liber2Api",
-    version="2.1.0",
+    version="2.1.1",
     description="High-availability OpenAI-compatible 2API proxy with account pool management for LibertAI.",
     lifespan=lifespan,
 )
