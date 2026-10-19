@@ -33,10 +33,19 @@ class PoolManager:
         """
         Picks the next available active account.
         Orders by last_used_at ascending (LRU).
+        If pool is exhausted, attempts emergency auto-registration on the fly.
         """
         async with self._lock:
             accounts = await get_active_accounts()
             if not accounts:
+                logger.warning("No active accounts available in pool! Attempting emergency auto-registration...")
+                try:
+                    from app.auto_register import registrar
+                    new_acc = await registrar.register_account(max_wait_seconds=25)
+                    if new_acc:
+                        return new_acc
+                except Exception as e:
+                    logger.error("Emergency auto-registration failed: %s", e)
                 return None
             return accounts[0]
 
@@ -66,10 +75,10 @@ class PoolManager:
         if status_code == 401:
             # Token might be expired, attempt immediate refresh
             logger.info("Account %s got 401, attempting token refresh", account["email"])
-            refreshed = await self.refresh_account(account_id)
+            refreshed, err_str = await self.refresh_account_with_error(account_id)
             if not refreshed:
-                logger.error("Account %s token refresh failed, marking invalid", account["email"])
-                await mark_account_invalid(account_id, f"401 Unauthorized, refresh failed: {error_detail[:200]}")
+                logger.error("Account %s token refresh failed (%s), marking invalid", account["email"], err_str)
+                await mark_account_invalid(account_id, f"上游会话失效已注销: {err_str[:150]}")
             return False
 
         # Other 4xx/5xx errors
@@ -77,12 +86,17 @@ class PoolManager:
         return False
 
     async def refresh_account(self, account_id: int) -> bool:
+        ok, _ = await self.refresh_account_with_error(account_id)
+        return ok
+
+    async def refresh_account_with_error(self, account_id: int) -> Tuple[bool, str]:
         """
         Manually or automatically refreshes tokens and chatApiKey for an account.
+        Returns (success: bool, error_message: str).
         """
         account = await get_account_by_id(account_id)
         if not account:
-            return False
+            return False, "账号在本地数据库中不存在"
 
         try:
             tokens = await self.client.refresh_tokens(account["refresh_token"], account_email=account["email"])
@@ -112,10 +126,10 @@ class PoolManager:
                 pass
 
             logger.info("Successfully refreshed account %s", account["email"])
-            return True
+            return True, ""
         except Exception as e:
             logger.error("Failed to refresh account %s: %s", account["email"], e)
-            return False
+            return False, str(e)
 
     async def test_account(self, account_id: int) -> Tuple[bool, str]:
         """
@@ -221,6 +235,16 @@ class PoolManager:
                         if acc["status"] != "invalid":
                             await self.refresh_account(acc["id"])
                             await asyncio.sleep(2)  # Avoid bursting the auth endpoint
+
+                # 3. Auto replenishment: maintain at least 2 active accounts
+                active_accounts = await get_active_accounts()
+                if len(active_accounts) < 2:
+                    logger.info("Active accounts in pool (%d) below minimum (2), triggering auto-replenishment...", len(active_accounts))
+                    try:
+                        from app.auto_register import registrar
+                        await registrar.register_account()
+                    except Exception as e:
+                        logger.error("Auto replenishment failed: %s", e)
 
             except asyncio.CancelledError:
                 break

@@ -57,7 +57,7 @@
         <div>
           <span class="text-lg font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
             Liber2Api
-            <span class="text-xs px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">v1.5.0</span>
+            <span class="text-xs px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">v1.6.0</span>
           </span>
           <p class="text-xs text-slate-500 dark:text-slate-400 hidden sm:block">LibertAI 多账号负载均衡与 OpenAI 兼容代理网关</p>
         </div>
@@ -333,10 +333,16 @@
           </h2>
           <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">自动探测冷却状态并执行无缝故障转移与定时保活</p>
         </div>
-        <button onclick="loadAccounts()" class="flex items-center space-x-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition">
-          <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
-          <span>刷新列表</span>
-        </button>
+        <div class="flex items-center space-x-2">
+          <button onclick="autoRegisterAccount()" id="btn-auto-reg" class="flex items-center space-x-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm transition" title="使用临时邮箱自动免人工注册一个全新账号存入号池">
+            <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+            <span>一键自动注册新号</span>
+          </button>
+          <button onclick="loadAccounts()" class="flex items-center space-x-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition">
+            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+            <span>刷新列表</span>
+          </button>
+        </div>
       </div>
 
       <div class="overflow-x-auto">
@@ -607,6 +613,105 @@
     const baseUrlElem = document.getElementById("base-url-text");
     if (baseUrlElem) {
       baseUrlElem.innerText = `${currentOrigin}/v1`;
+    }
+
+
+    // Resin & Proxy Settings Management
+    async function openProxyModal() {
+      const modal = document.getElementById('proxy-modal');
+      if (modal) modal.classList.remove('hidden');
+      loadProxySettings();
+      lucide.createIcons();
+    }
+
+    function closeProxyModal() {
+      const modal = document.getElementById('proxy-modal');
+      if (modal) modal.classList.add('hidden');
+    }
+
+    async function loadProxySettings() {
+      try {
+        const resp = await fetch('/api/settings/proxy');
+        if (!resp.ok) return;
+        const data = await resp.json();
+
+        const pInput = document.getElementById('setting-proxy-url');
+        const rInput = document.getElementById('setting-resin-url');
+        const platInput = document.getElementById('setting-resin-platform');
+
+        if (pInput) pInput.value = data.proxy_url || '';
+        if (rInput) rInput.value = data.resin_url || '';
+        if (platInput) platInput.value = data.resin_platform_name || 'Default';
+
+        updateProxyDisplayBadge(data);
+      } catch (e) {
+        console.error('Failed to load proxy settings:', e);
+      }
+    }
+
+    function updateProxyDisplayBadge(data) {
+      const disp = document.getElementById('proxy-status-display');
+      if (!disp) return;
+      if (data && data.proxy_url) {
+        disp.innerHTML = '<span class="text-indigo-600 dark:text-indigo-400 font-medium">正向代理 (' + escapeHtml(data.proxy_url.split('@').pop().slice(0, 15)) + ')</span>';
+      } else if (data && data.resin_url) {
+        disp.innerHTML = '<span class="text-indigo-600 dark:text-indigo-400 font-medium">Resin网关 (' + escapeHtml(data.resin_platform_name || 'Default') + ')</span>';
+      } else {
+        disp.innerHTML = '<span class="text-slate-400 dark:text-slate-500">直连模式 (未启用代理)</span>';
+      }
+    }
+
+    async function saveProxySettings() {
+      const pUrl = document.getElementById('setting-proxy-url').value.trim();
+      const rUrl = document.getElementById('setting-resin-url').value.trim();
+      const plat = document.getElementById('setting-resin-platform').value.trim() || 'Default';
+      const btn = document.getElementById('btn-save-proxy');
+      btn.disabled = true;
+
+      try {
+        const resp = await fetch('/api/settings/proxy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            proxy_url: pUrl,
+            resin_url: rUrl,
+            resin_platform_name: plat
+          })
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail || '保存失败');
+        alert('代理与 Resin 配置已成功保存并即时生效！');
+        closeProxyModal();
+        if (data.settings) updateProxyDisplayBadge(data.settings);
+      } catch (err) {
+        alert('保存代理配置失败: ' + err.message);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    // Auto-Register Free Account
+    async function autoRegisterAccount() {
+      const btn = document.getElementById('btn-auto-reg');
+      btn.disabled = true;
+      btn.innerHTML = '<i data-lucide=\"loader-2\" class=\"w-3.5 h-3.5 animate-spin\"></i><span>正在自动接码建号...</span>';
+      lucide.createIcons();
+
+      try {
+        const resp = await fetch('/api/accounts/auto-register', { method: 'POST' });
+        const data = await resp.json();
+        if (!resp.ok) {
+          throw new Error(data.detail || '自动建号失败');
+        }
+        alert(data.message || '新账号已自动创建并成功存入号池！');
+        loadAccounts();
+      } catch (err) {
+        alert('自动建号异常: ' + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i data-lucide=\"sparkles\" class=\"w-3.5 h-3.5\"></i><span>一键自动注册新号</span>';
+        lucide.createIcons();
+      }
     }
 
 

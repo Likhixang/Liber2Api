@@ -69,7 +69,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Liber2Api",
-    version="1.5.0",
+    version="1.6.0",
     description="High-availability OpenAI-compatible 2API proxy with account pool management for LibertAI.",
     lifespan=lifespan,
 )
@@ -394,6 +394,25 @@ async def api_list_accounts(_admin: bool = Depends(verify_admin)):
         clean_accounts.append(item)
 
     return {"accounts": clean_accounts, "summary": summary}
+
+
+@app.post("/api/accounts/auto-register")
+async def api_auto_register_account(_admin: bool = Depends(verify_admin)):
+    from app.auto_register import registrar
+    try:
+        account = await registrar.register_account()
+        clean_acc = dict(account)
+        clean_acc.pop("access_token", None)
+        clean_acc.pop("refresh_token", None)
+        clean_acc.pop("chat_api_key", None)
+        return {
+            "success": True,
+            "message": f"新账号 {account.get('email')} 自动注册绑定成功并加入号池！",
+            "account": clean_acc,
+        }
+    except Exception as e:
+        logger.exception("Auto registration failed: %s", e)
+        raise HTTPException(status_code=500, detail=f"自动注册失败: {str(e)}")
 
 
 @app.get("/api/accounts/{account_id}/usage")
