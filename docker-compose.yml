@@ -1,0 +1,28 @@
+services:
+  liber2api:
+    image: ghcr.io/likhixang/liber2api:latest
+    container_name: liber2api
+    restart: unless-stopped
+    ports:
+      # 仅供本机或宿主机 NPM/反代访问，绑定 127.0.0.1
+      - "127.0.0.1:8000:8000"
+    environment:
+      - PORT=8000
+      - HOST=0.0.0.0
+      - DATA_DIR=/app/data
+      # 可选：如果希望保护 WebUI 管理面板，取消注释并设置密码
+      # - ADMIN_PASSWORD=your_admin_secret
+      # 可选：如果希望限制下游客户端调用，取消注释并设置 API_KEY
+      # - API_KEY=sk-liber2api-secret
+      # 429 触发后的冷却时间（小时），默认 5 小时
+      - COOLDOWN_HOURS=5
+      # 账号 Token 自动后台保活轮转周期（秒），默认 12 小时 (43200)
+      - AUTO_REFRESH_INTERVAL=43200
+    volumes:
+      - ./data:/app/data
+    networks:
+      - docker_share
+
+networks:
+  docker_share:
+    external: true
