@@ -88,7 +88,17 @@ class LibertAIClient:
 
     def _get_client(self, account_email: Optional[str] = None) -> httpx.AsyncClient:
         proxy = resolve_forward_proxy(account_email)
-        return httpx.AsyncClient(timeout=self.timeout, proxy=proxy)
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Origin": "https://chat.libertai.io",
+            "Referer": "https://chat.libertai.io/",
+            "Sec-Ch-Ua": '"Google Chrome";v="143", "Chromium";v="143", "Not?A_Brand";v="24"',
+            "Sec-Ch-Ua-Mobile": "?0",
+            "Sec-Ch-Ua-Platform": '"Windows"',
+        }
+        return httpx.AsyncClient(timeout=self.timeout, proxy=proxy, headers=headers)
 
     async def send_login_email(self, email: str) -> bool:
         """

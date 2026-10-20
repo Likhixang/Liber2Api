@@ -81,8 +81,8 @@ class PoolManager:
             ])
             if is_dead:
                 msg = f"凭证已失效/被风控注销 ({refresh_err or error_detail})"
-                logger.warning("Account %s permanently invalid: %s", account["email"], msg)
-                await mark_account_invalid(account_id, msg)
+                logger.warning("Account %s permanently invalid: %s, automatically purging from pool", account["email"], msg)
+                await delete_account(account_id)
                 return False
 
             # Otherwise, treat as temporary quota depletion
@@ -179,8 +179,9 @@ class PoolManager:
                     "session expired", "invalid api key", "user not found", "account disabled", "account banned"
                 ])
                 if is_dead:
-                    msg = f"凭证失效/被风控注销: {refresh_err}"
-                    await mark_account_invalid(account_id, msg)
+                    msg = f"凭证已失效/被风控注销: {refresh_err}，已自动从号池剔除"
+                    logger.warning("Account %s permanently dead: %s, automatically purging", account["email"], msg)
+                    await delete_account(account_id)
                     return False, msg
 
                 cooldown_until = datetime.now(timezone.utc) + timedelta(hours=COOLDOWN_HOURS)
@@ -299,7 +300,10 @@ class PoolManager:
                     logger.info("Running scheduled token rotation across account pool")
                     for acc in await get_all_accounts():
                         if acc["status"] != "invalid":
-                            await self.refresh_account(acc["id"])
+                            ok, err = await self.refresh_account_with_error(acc["id"])
+                            if not ok and any(k in err.lower() for k in ["session expired", "invalid api key"]):
+                                logger.warning("Account %s session expired during rotation, purging from pool: %s", acc["email"], err)
+                                await delete_account(acc["id"])
                             await asyncio.sleep(2)
 
             except asyncio.CancelledError:
