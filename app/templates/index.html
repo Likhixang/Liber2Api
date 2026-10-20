@@ -57,7 +57,7 @@
         <div>
           <span class="text-lg font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
             Liber2Api
-            <span class="text-xs px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">v2.1.1</span>
+            <span class="text-xs px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">v2.2.2</span>
           </span>
           <p class="text-xs text-slate-500 dark:text-slate-400 hidden sm:block">LibertAI 多账号负载均衡与 OpenAI 兼容代理网关</p>
         </div>
@@ -1489,10 +1489,10 @@
         const builtinList = document.getElementById('builtin-providers-list');
         if (builtinList) {
           const builtinDescs = {
-            'neighbours': '覆盖 20+ 独立纯净域名 (tomboy.live, tomboy.best 等)，通过率 100%',
-            'tempmail_ing': 'Cloudflare 官方路由域名 (animateany, texttoimage 等)，支持实时轮询',
-            'mtempmail': '多 TLD 备用接码源 (mtempmail.com 等)',
-            'tempmail_plus': '多域备用协议源 (fexpost.com, chitthi.in 等 7+ 域名)'
+            'neighbours': '',
+            'tempmail_ing': '支持实时轮询',
+            'mtempmail': '多 TLD 备用接码源',
+            'tempmail_plus': '备用协议源'
           };
 
           if (builtins.length === 0) {
@@ -1500,7 +1500,7 @@
           } else {
             builtinList.innerHTML = builtins.map(p => {
               const isActive = p.status === 'active';
-              const desc = builtinDescs[p.provider_type] || '官方系统内置接码源';
+              const desc = builtinDescs[p.provider_type] || '';
               return `
                 <div class="p-3.5 rounded-xl border ${isActive ? 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800' : 'bg-slate-50/50 dark:bg-slate-950/40 border-slate-200/60 dark:border-slate-800/40 opacity-70'} flex flex-col justify-between space-y-2.5 shadow-sm">
                   <div class="flex items-center justify-between">
@@ -1513,7 +1513,7 @@
                       <span>${isActive ? '已启用' : '已停用'}</span>
                     </span>
                   </div>
-                  <p class="text-[11px] text-slate-500 dark:text-slate-400 font-sans leading-relaxed">${desc}</p>
+                  ${desc ? `<p class="text-[11px] text-slate-500 dark:text-slate-400 font-sans leading-relaxed">${desc}</p>` : ''}
                   <div class="flex items-center justify-between pt-1.5 border-t border-slate-100 dark:border-slate-800/60">
                     <span class="text-[10px] text-slate-400 font-mono">优先级: ${p.priority}</span>
                     <div class="inline-flex items-center gap-1.5 shrink-0">

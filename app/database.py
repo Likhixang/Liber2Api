@@ -110,7 +110,7 @@ async def init_db() -> None:
             now = _utc_now_str()
             # Only include proven working channels with unblocked domains (Neighbours)
             defaults = [
-                ("Neighbours 集群 (20+纯净域名)", "neighbours", None, "https://neighbours.sh/api/v1", None, None, "active", 1),
+                ("Neighbours 集群", "neighbours", None, "https://neighbours.sh/api/v1", None, None, "active", 1),
             ]
             for name, p_type, domain, api_url, create_url, api_key, status, priority in defaults:
                 await db.execute(
@@ -545,7 +545,7 @@ async def delete_mail_provider(provider_id: int) -> bool:
 async def reset_builtin_mail_providers() -> None:
     """Restores official proven working built-in providers to active state and default URLs."""
     defaults = [
-        ("Neighbours 集群 (20+纯净域名)", "neighbours", None, "https://neighbours.sh/api/v1", None, None, "active", 1),
+        ("Neighbours 集群", "neighbours", None, "https://neighbours.sh/api/v1", None, None, "active", 1),
     ]
     now = _utc_now_str()
     async with aiosqlite.connect(DATABASE_PATH) as db:
