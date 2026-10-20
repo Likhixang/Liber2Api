@@ -90,6 +90,12 @@ app.add_middleware(
 )
 
 
+@app.get("/health")
+async def health_check():
+    """Unauthenticated health probe endpoint for Docker and load balancers."""
+    return {"status": "ok", "service": "Liber2Api"}
+
+
 # Security Dependency for 2API endpoints (Supports Multi-Token Pool)
 async def verify_api_key(authorization: Optional[str] = Header(None)) -> bool:
     db_enabled = await get_setting("api_key_enabled")
