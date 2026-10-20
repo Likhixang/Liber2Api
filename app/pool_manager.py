@@ -70,14 +70,26 @@ class PoolManager:
             return True
 
         if status_code in (401, 429):
-            # 401/429 on LibertAI corresponds to quota limits or 5-hour rolling window exhaustion.
-            # Attempt a single proactive token refresh. If still limited, put into 5-hour cooldown. Do NOT kick or delete!
-            refreshed, _ = await self.refresh_account_with_error(account_id)
-            if not refreshed:
-                cooldown_until = datetime.now(timezone.utc) + timedelta(hours=COOLDOWN_HOURS)
-                msg = f"HTTP {status_code}: 额度已达上限，进入5小时自动冷却"
-                logger.warning("Account %s triggered %d (quota limit), cooling down until %s", account["email"], status_code, cooldown_until.isoformat())
-                await mark_account_cooldown(account_id, cooldown_until.isoformat(), msg)
+            refreshed, refresh_err = await self.refresh_account_with_error(account_id)
+            if refreshed:
+                # Token rotation succeeded, account can remain in rotation with updated key
+                return False
+
+            # Check if account session was permanently revoked / key invalid
+            is_dead = any(k in refresh_err.lower() or k in error_detail.lower() for k in [
+                "session expired", "invalid api key", "user not found", "account disabled", "account banned"
+            ])
+            if is_dead:
+                msg = f"凭证已失效/被风控注销 ({refresh_err or error_detail})"
+                logger.warning("Account %s permanently invalid: %s", account["email"], msg)
+                await mark_account_invalid(account_id, msg)
+                return False
+
+            # Otherwise, treat as temporary quota depletion
+            cooldown_until = datetime.now(timezone.utc) + timedelta(hours=COOLDOWN_HOURS)
+            msg = f"HTTP {status_code}: 额度已达上限，进入5小时自动冷却"
+            logger.warning("Account %s triggered %d (quota limit), cooling down until %s", account["email"], status_code, cooldown_until.isoformat())
+            await mark_account_cooldown(account_id, cooldown_until.isoformat(), msg)
             return False
 
         # Other 4xx/5xx errors
@@ -149,7 +161,7 @@ class PoolManager:
                 await record_account_usage(account_id, success=True)
                 return True, "账号状态活跃正常"
             elif status in (401, 429):
-                refreshed, _ = await self.refresh_account_with_error(account_id)
+                refreshed, refresh_err = await self.refresh_account_with_error(account_id)
                 if refreshed:
                     acc_new = await get_account_by_id(account_id)
                     if acc_new:
@@ -161,6 +173,15 @@ class PoolManager:
                         if s2 == 200:
                             await record_account_usage(account_id, success=True)
                             return True, "账号刷新后恢复正常"
+
+                # Check if account is permanently revoked vs in cooldown
+                is_dead = any(k in refresh_err.lower() for k in [
+                    "session expired", "invalid api key", "user not found", "account disabled", "account banned"
+                ])
+                if is_dead:
+                    msg = f"凭证失效/被风控注销: {refresh_err}"
+                    await mark_account_invalid(account_id, msg)
+                    return False, msg
 
                 cooldown_until = datetime.now(timezone.utc) + timedelta(hours=COOLDOWN_HOURS)
                 msg = f"HTTP {status} 额度已达上限，进入冷却中"
