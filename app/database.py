@@ -233,6 +233,7 @@ async def mark_account_cooldown(account_id: int, cooldown_until_iso: str, error_
                 cooldown_until = ?,
                 last_error = ?,
                 updated_at = ?,
+                total_requests = total_requests + 1,
                 failed_requests = failed_requests + 1
             WHERE id = ?
             """,
@@ -250,6 +251,7 @@ async def mark_account_invalid(account_id: int, error_msg: str) -> None:
             SET status = 'invalid',
                 last_error = ?,
                 updated_at = ?,
+                total_requests = total_requests + 1,
                 failed_requests = failed_requests + 1
             WHERE id = ?
             """,
@@ -340,7 +342,11 @@ async def get_pool_summary() -> Dict[str, Any]:
             else:
                 active += 1
 
-        success_rate = None if total_reqs == 0 else round((total_reqs - failed_reqs) / total_reqs * 100, 1)
+        if total_reqs == 0:
+            success_rate = None
+        else:
+            effective_success = max(0, total_reqs - failed_reqs)
+            success_rate = round(min(100.0, max(0.0, (effective_success / total_reqs) * 100)), 1)
 
         return {
             "total_accounts": total,

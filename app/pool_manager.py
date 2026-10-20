@@ -132,17 +132,18 @@ class PoolManager:
 
     async def test_account(self, account_id: int) -> Tuple[bool, str]:
         """
-        Tests if an account's chat_api_key is working by performing lightweight auth check.
-        Uses GET https://api.libertai.io/libertai/auth/check.
-        If auth check returns 401/429, marks cooldown instead of invalid or deleting.
+        Tests if an account's chat_api_key is working by performing a minimal 1-token completion probe.
+        If completion returns 401/429, marks cooldown instead of invalid or deleting.
         """
         account = await get_account_by_id(account_id)
         if not account:
             return False, "Account not found"
 
         try:
-            status, resp_text = await self.client.check_chat_api_key_auth(
-                account["chat_api_key"], account_email=account["email"]
+            status, _ = await self.client.forward_completion_json(
+                account["chat_api_key"],
+                {"model": "qwen3.6-35b-a3b", "messages": [{"role": "user", "content": "1"}], "max_tokens": 1},
+                account_email=account["email"],
             )
             if status == 200:
                 await record_account_usage(account_id, success=True)
@@ -152,10 +153,13 @@ class PoolManager:
                 if refreshed:
                     acc_new = await get_account_by_id(account_id)
                     if acc_new:
-                        s2, _ = await self.client.check_chat_api_key_auth(
-                            acc_new["chat_api_key"], account_email=acc_new["email"]
+                        s2, _ = await self.client.forward_completion_json(
+                            acc_new["chat_api_key"],
+                            {"model": "qwen3.6-35b-a3b", "messages": [{"role": "user", "content": "1"}], "max_tokens": 1},
+                            account_email=acc_new["email"],
                         )
                         if s2 == 200:
+                            await record_account_usage(account_id, success=True)
                             return True, "账号刷新后恢复正常"
 
                 cooldown_until = datetime.now(timezone.utc) + timedelta(hours=COOLDOWN_HOURS)
@@ -164,7 +168,7 @@ class PoolManager:
                 return False, msg
             else:
                 await record_account_usage(account_id, success=False)
-                return False, f"HTTP {status}: {resp_text[:100]}"
+                return False, f"HTTP {status}"
         except Exception as e:
             return False, f"Network error: {str(e)}"
 
@@ -249,17 +253,9 @@ class PoolManager:
                             logger.info("Cooldown ended for account %s, reactivating", acc["email"])
                             await reset_account_status(acc["id"])
 
-                # 2. Every 5 minutes (300s): Health check & cooldown evaluation, plus auto replenishment
+                # 2. Every 5 minutes (300s): Auto replenishment if active count < 100
                 if health_check_tick >= 300:
                     health_check_tick = 0
-                    logger.info("Running 5-minute health probe across pool...")
-                    current_accounts = await get_all_accounts()
-                    for acc in current_accounts:
-                        # Probe account
-                        is_ok, msg = await self.test_account(acc["id"])
-                        if not is_ok:
-                            logger.info("Account %s in cooldown: %s", acc["email"], msg)
-                        await asyncio.sleep(1)
 
                     # Auto replenishment: create 3 new accounts if active count < 100
                     active_now = await get_active_accounts()
