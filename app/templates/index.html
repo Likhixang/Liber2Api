@@ -6,6 +6,11 @@
   <title>Liber2Api - LibertAI 号池管理网关</title>
   <!-- Theme Init Script (Prevent Flash of Incorrect Theme) -->
   <script>
+    // Clear credentials saved by older releases before initializing the UI.
+    function clearLegacyPassword() {
+      try { localStorage.removeItem('liber2api_logged_in_pass'); } catch (err) { /* Storage may be blocked. */ }
+    }
+    clearLegacyPassword();
     (function() {
       const theme = localStorage.getItem("liber2api_theme") || "system";
       const isDark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
@@ -16,32 +21,14 @@
       }
     })();
   </script>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/lucide@latest"></script>
-  <script>
-    tailwind.config = {
-      darkMode: 'class',
-      theme: {
-        extend: {
-          colors: {
-            brand: {
-              50: '#f0f9ff',
-              500: '#0ea5e9',
-              600: '#0284c7',
-              700: '#0369a1',
-            }
-          }
-        }
-      }
-    }
-  </script>
+  <link rel="stylesheet" href="/static/ui.css" />
+  <script src="/static/lucide.min.js"></script>
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
     body {
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     }
     code, pre {
-      font-family: 'JetBrains Mono', monospace;
+      font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace;
     }
   </style>
 </head>
@@ -117,8 +104,8 @@
 
       <form onsubmit="handleAdminLogin(event)" class="space-y-4">
         <div>
-          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">管理密码 (ADMIN_PASSWORD)</label>
-          <input type="password" id="admin-pass-input" placeholder="••••••••" required autofocus class="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-500/50 focus:border-sky-500 transition" />
+          <label for="admin-pass-input" class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">管理密码 (ADMIN_PASSWORD)</label>
+          <input type="password" id="admin-pass-input" autocomplete="current-password" placeholder="••••••••" required autofocus class="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-500/50 focus:border-sky-500 transition" />
         </div>
         <button type="submit" id="btn-login" class="w-full bg-sky-600 hover:bg-sky-500 text-white font-medium text-sm py-2.5 px-4 rounded-xl flex items-center justify-center space-x-2 transition shadow-lg shadow-sky-600/20 disabled:opacity-50">
           <i data-lucide="key-round" class="w-4 h-4"></i>
@@ -126,7 +113,7 @@
         </button>
       </form>
 
-      <div id="login-feedback" class="text-xs text-center hidden rounded-lg p-2.5 bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800"></div>
+      <div id="login-feedback" role="alert" class="text-xs text-center hidden rounded-lg p-2.5 bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800"></div>
     </div>
   </div>
   {% else %}
@@ -198,7 +185,7 @@
           <!-- Step 1: Input Email -->
           <div id="step-1" class="space-y-4">
             <div>
-              <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">邮箱地址</label>
+              <label for="email-input" class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">邮箱地址</label>
               <input type="email" id="email-input" placeholder="your_email@example.com" class="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500/50 focus:border-sky-500 transition" />
             </div>
             <button onclick="handleSendCode()" id="btn-send-code" class="w-full bg-sky-600 hover:bg-sky-500 text-white font-medium text-sm py-2.5 px-4 rounded-xl flex items-center justify-center space-x-2 transition shadow-lg shadow-sky-600/20 disabled:opacity-50">
@@ -214,8 +201,8 @@
               <button onclick="resetAddForm()" class="text-xs text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white underline">修改邮箱</button>
             </div>
             <div>
-              <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">6 位数字验证码</label>
-              <input type="text" id="code-input" maxlength="6" placeholder="123456" class="w-full tracking-widest text-center text-lg font-mono bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl px-3.5 py-2 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-500/50 focus:border-sky-500 transition" />
+              <label for="code-input" class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">6 位数字验证码</label>
+              <input type="text" id="code-input" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456" class="w-full tracking-widest text-center text-lg font-mono bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl px-3.5 py-2 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-500/50 focus:border-sky-500 transition" />
             </div>
             <button onclick="handleVerifyCode()" id="btn-verify-code" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-sm py-2.5 px-4 rounded-xl flex items-center justify-center space-x-2 transition shadow-lg shadow-emerald-600/20 disabled:opacity-50">
               <i data-lucide="check" class="w-4 h-4"></i>
@@ -224,7 +211,7 @@
           </div>
 
           <!-- Alert / Status Text -->
-          <div id="wizard-feedback" class="mt-4 text-xs hidden rounded-lg p-2.5"></div>
+          <div id="wizard-feedback" role="status" class="mt-4 text-xs hidden rounded-lg p-2.5"></div>
 
           <!-- API Keys (多密钥管理) 挪动到获取验证码下方空白处 -->
           <div class="mt-5 pt-4 border-t border-slate-200 dark:border-slate-800/60">
@@ -239,7 +226,7 @@
                 </button>
               </div>
               <div class="flex items-center justify-between font-mono text-xs text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900 px-2.5 py-1.5 rounded border border-slate-200 dark:border-slate-800">
-                <span id="api-key-text" data-raw="{% if api_key %}{{ api_key }}{% endif %}" data-masked="true" class="truncate font-mono">{% if api_key %}{{ api_key[:8] }}********{{ api_key[-4:] }}{% else %}免密访问模式（留空即可）{% endif %}</span>
+                <span id="api-key-text" data-masked="true" class="truncate font-mono">正在加载可用密钥...</span>
                 <div class="flex items-center space-x-1 shrink-0 ml-1">
                   <button onclick="toggleMask('api-key-text', 'api-key-eye')" id="api-key-eye" class="text-slate-400 hover:text-slate-700 dark:hover:text-white transition p-0.5 rounded" title="显示/隐藏完整密钥">
                     <i data-lucide="eye" class="w-3.5 h-3.5"></i>
@@ -258,7 +245,7 @@
 
         <div class="mt-6 pt-4 border-t border-slate-200 dark:border-slate-800/60 text-[11px] text-slate-400 dark:text-slate-500 flex items-center gap-1.5">
           <i data-lucide="shield-check" class="w-3.5 h-3.5 text-emerald-500 dark:text-emerald-400"></i>
-          <span>凭据均仅加密持久化保存在本地 SQLite 中。</span>
+          <span>凭据保存在本地 SQLite 中。</span>
         </div>
       </div>
 
@@ -417,16 +404,16 @@
 
   
   <!-- Resin & Proxy Settings Modal -->
-  <div id="proxy-modal" class="fixed inset-0 z-50 bg-slate-900/40 dark:bg-slate-950/70 backdrop-blur-sm hidden flex items-center justify-center p-4">
+  <div id="proxy-modal" role="dialog" aria-modal="true" aria-labelledby="proxy-modal-title" tabindex="-1" class="fixed inset-0 z-50 bg-slate-900/40 dark:bg-slate-950/70 backdrop-blur-sm hidden flex items-center justify-center p-4">
     <div class="max-w-xl w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-2xl space-y-5">
       <div class="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
         <div class="flex items-center space-x-2">
           <div class="p-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800/40">
             <i data-lucide="sliders" class="w-4 h-4"></i>
           </div>
-          <h3 class="text-sm font-semibold text-slate-900 dark:text-white">Resin 粘滞网关与网络代理设置</h3>
+          <h3 id="proxy-modal-title" class="text-sm font-semibold text-slate-900 dark:text-white">Resin 粘滞网关与网络代理设置</h3>
         </div>
-        <button onclick="closeProxyModal()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+        <button aria-label="关闭对话框" onclick="closeProxyModal()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
           <i data-lucide="x" class="w-4 h-4"></i>
         </button>
       </div>
@@ -436,7 +423,7 @@
           <label class="block font-medium text-slate-700 dark:text-slate-300 mb-1">
             正向代理 URL (支持 Resin 格式或通用 HTTP/SOCKS 代理)
           </label>
-          <input type="text" id="setting-proxy-url" placeholder="如: http://Default:TOKEN@resin:2260 或 http://127.0.0.1:7890" class="w-full font-mono text-xs bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/50" />
+          <input type="text" id="setting-proxy-url" aria-label="正向代理 URL" placeholder="如: http://Default:TOKEN@resin:2260 或 http://127.0.0.1:7890" class="w-full font-mono text-xs bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/50" />
           <p class="mt-1 text-[11px] text-slate-500 dark:text-slate-400">支持 Resin 外部正向代理（自动按账号邮箱注入 Platform.Account:TOKEN 保持粘滞出口），或填入通用代理。</p>
         </div>
 
@@ -444,7 +431,7 @@
           <label class="block font-medium text-slate-700 dark:text-slate-300 mb-1">
             Resin 反向网关地址 (RESIN_URL)
           </label>
-          <input type="text" id="setting-resin-url" placeholder="如: http://127.0.0.1:2260/my-token (可选，留空则直连)" class="w-full font-mono text-xs bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/50" />
+          <input type="text" id="setting-resin-url" aria-label="Resin 反向网关地址" placeholder="如: http://127.0.0.1:2260/my-token (可选，留空则直连)" class="w-full font-mono text-xs bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/50" />
           <p class="mt-1 text-[11px] text-slate-500 dark:text-slate-400">使用 Resin 反向网关模式时配置，请求将重写至该网关并附带 X-Resin-Account 标头。</p>
         </div>
 
@@ -452,7 +439,7 @@
           <label class="block font-medium text-slate-700 dark:text-slate-300 mb-1">
             Resin 平台名称 (RESIN_PLATFORM_NAME)
           </label>
-          <input type="text" id="setting-resin-platform" placeholder="Default" value="Default" class="w-full text-xs bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/50" />
+          <input type="text" id="setting-resin-platform" aria-label="Resin 平台名称" placeholder="Default" value="Default" class="w-full text-xs bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/50" />
         </div>
       </div>
 
@@ -468,16 +455,16 @@
   </div>
 
   <!-- Multi-Token Management Modal -->
-  <div id="token-modal" class="fixed inset-0 z-50 bg-slate-900/40 dark:bg-slate-950/70 backdrop-blur-sm hidden flex items-center justify-center p-4">
+  <div id="token-modal" role="dialog" aria-modal="true" aria-labelledby="token-modal-title" tabindex="-1" class="fixed inset-0 z-50 bg-slate-900/40 dark:bg-slate-950/70 backdrop-blur-sm hidden flex items-center justify-center p-4">
     <div class="max-w-2xl w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-2xl space-y-5 max-h-[90vh] flex flex-col">
       <div class="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800 shrink-0">
         <div class="flex items-center space-x-2">
           <div class="p-1.5 rounded-lg bg-sky-50 dark:bg-sky-950/50 text-sky-600 dark:text-sky-400 border border-sky-200 dark:border-sky-800/40">
             <i data-lucide="key" class="w-4 h-4"></i>
           </div>
-          <h3 class="text-sm font-semibold text-slate-900 dark:text-white">API Keys 密钥管理 (支持多密钥)</h3>
+          <h3 id="token-modal-title" class="text-sm font-semibold text-slate-900 dark:text-white">API Keys 密钥管理 (支持多密钥)</h3>
         </div>
-        <button onclick="closeTokenModal()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+        <button aria-label="关闭对话框" onclick="closeTokenModal()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
           <i data-lucide="x" class="w-4 h-4"></i>
         </button>
       </div>
@@ -489,7 +476,7 @@
           <div class="text-[11px] text-slate-500 dark:text-slate-400" id="policy-desc">开启后客户端必须携带有效 Bearer 令牌调用 /v1/chat/completions</div>
         </div>
         <label class="relative inline-flex items-center cursor-pointer">
-          <input type="checkbox" id="auth-policy-toggle" onchange="toggleAuthPolicy()" class="sr-only peer" />
+          <input type="checkbox" id="auth-policy-toggle" aria-label="全局 API 鉴权策略" onchange="toggleAuthPolicy()" class="sr-only peer" />
           <div class="w-9 h-5 bg-slate-200 dark:bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-sky-600"></div>
         </label>
       </div>
@@ -501,9 +488,9 @@
           <span>新建 API Key 访问密钥</span>
         </div>
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-          <input type="text" id="new-token-name" placeholder="名称 (如: Cherry Studio)" class="text-xs bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/50" />
+          <input type="text" id="new-token-name" aria-label="密钥名称" placeholder="名称 (如: Cherry Studio)" class="text-xs bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/50" />
           <div class="sm:col-span-2 flex space-x-2">
-            <input type="text" id="new-token-val" placeholder="自定义或点击随机生成 (可留空自动生成)" class="flex-1 font-mono text-xs bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/50" />
+            <input type="text" id="new-token-val" aria-label="自定义 API Key" placeholder="自定义或点击随机生成 (可留空自动生成)" class="flex-1 font-mono text-xs bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/50" />
             <button onclick="generateRandomTokenInput()" type="button" class="px-2.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs shrink-0" title="随机生成安全密钥">
               <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
             </button>
@@ -543,7 +530,7 @@
   </div>
 
   <!-- Mail Providers Management Modal (支持内置源与自定义邮箱 API) -->
-  <div id="mail-provider-modal" onclick="if(event.target === this) closeMailProviderModal()" class="fixed inset-0 z-50 bg-slate-900/40 dark:bg-slate-950/70 backdrop-blur-sm hidden flex items-center justify-center p-4">
+  <div id="mail-provider-modal" role="dialog" aria-modal="true" aria-labelledby="mail-provider-modal-title" tabindex="-1" onclick="if(event.target === this) closeMailProviderModal()" class="fixed inset-0 z-50 bg-slate-900/40 dark:bg-slate-950/70 backdrop-blur-sm hidden flex items-center justify-center p-4">
     <div class="max-w-4xl w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-2xl space-y-5 max-h-[90vh] flex flex-col">
       <div class="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800 shrink-0">
         <div class="flex items-center space-x-2">
@@ -551,11 +538,11 @@
             <i data-lucide="mail-check" class="w-4 h-4"></i>
           </div>
           <div>
-            <h3 class="text-sm font-semibold text-slate-900 dark:text-white">邮箱接码 API 管理</h3>
+            <h3 id="mail-provider-modal-title" class="text-sm font-semibold text-slate-900 dark:text-white">邮箱接码 API 管理</h3>
             <p class="text-[11px] text-slate-500 dark:text-slate-400">系统内置多套纯净公共接码引擎，同时支持接入私有 Cloudflare Email Worker、自建 Webhook 等自定义接口。</p>
           </div>
         </div>
-        <button onclick="closeMailProviderModal()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-lg">
+        <button aria-label="关闭对话框" onclick="closeMailProviderModal()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-lg">
           <i data-lucide="x" class="w-4 h-4"></i>
         </button>
       </div>
@@ -594,11 +581,11 @@
           <div class="p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
               <div>
-                <label class="block font-medium text-slate-700 dark:text-slate-300 mb-1">接口名称 *</label>
+                <label for="new-mail-name" class="block font-medium text-slate-700 dark:text-slate-300 mb-1">接口名称 *</label>
                 <input type="text" id="new-mail-name" placeholder="如: 我的 Cloudflare 接码" class="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500/50" />
               </div>
               <div>
-                <label class="block font-medium text-slate-700 dark:text-slate-300 mb-1">接口协议类型 *</label>
+                <label for="new-mail-type" class="block font-medium text-slate-700 dark:text-slate-300 mb-1">接口协议类型 *</label>
                 <select id="new-mail-type" onchange="handleMailTypeChange()" class="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-violet-500/50">
                   <option value="custom_http">通用 HTTP / Webhook API (支持自建/Worker)</option>
                   <option value="neighbours">Neighbours 集群协议</option>
@@ -607,23 +594,23 @@
                 </select>
               </div>
               <div>
-                <label class="block font-medium text-slate-700 dark:text-slate-300 mb-1">自定义固定域名 (可选)</label>
+                <label for="new-mail-domain" class="block font-medium text-slate-700 dark:text-slate-300 mb-1">自定义固定域名 (可选)</label>
                 <input type="text" id="new-mail-domain" placeholder="如: mail.mydomain.com (留空则由接口分配)" class="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500/50" />
               </div>
               <div>
-                <label class="block font-medium text-slate-700 dark:text-slate-300 mb-1">优先级 (1-100，越小越优先)</label>
+                <label for="new-mail-priority" class="block font-medium text-slate-700 dark:text-slate-300 mb-1">优先级 (0-100，越小越优先)</label>
                 <input type="number" id="new-mail-priority" value="0" min="0" max="100" class="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500/50" />
               </div>
               <div class="sm:col-span-2">
-                <label class="block font-medium text-slate-700 dark:text-slate-300 mb-1">轮询/读取邮件 URL *</label>
+                <label for="new-mail-api-url" class="block font-medium text-slate-700 dark:text-slate-300 mb-1">轮询/读取邮件 URL *</label>
                 <input type="text" id="new-mail-api-url" placeholder="如: https://worker.dev/inbox?email={email} (支持 {email} 占位符)" class="w-full font-mono text-xs bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500/50" />
               </div>
               <div>
-                <label class="block font-medium text-slate-700 dark:text-slate-300 mb-1">生成邮箱地址 URL (可选)</label>
+                <label for="new-mail-create-url" class="block font-medium text-slate-700 dark:text-slate-300 mb-1">生成邮箱地址 URL (可选)</label>
                 <input type="text" id="new-mail-create-url" placeholder="如: https://worker.dev/new (留空则按域名随机生成)" class="w-full font-mono text-xs bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500/50" />
               </div>
               <div>
-                <label class="block font-medium text-slate-700 dark:text-slate-300 mb-1">API Key / Token (可选)</label>
+                <label for="new-mail-key" class="block font-medium text-slate-700 dark:text-slate-300 mb-1">API Key / Token (可选)</label>
                 <input type="password" id="new-mail-key" placeholder="Bearer Token 或 X-API-Key" class="w-full font-mono text-xs bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500/50" />
               </div>
             </div>
@@ -668,17 +655,92 @@
   </div>
 
   <!-- Global Web-Native Toast Notification Container -->
-  <div id="toast-container" class="fixed top-4 right-4 left-4 sm:left-auto sm:right-5 sm:max-w-sm z-50 flex flex-col space-y-2.5 pointer-events-none"></div>
+  <div id="toast-container" aria-live="polite" aria-atomic="false" class="fixed top-4 right-4 left-4 sm:left-auto sm:right-5 sm:max-w-sm z-50 flex flex-col space-y-2.5 pointer-events-none"></div>
 
   <footer class="border-t border-slate-200 dark:border-slate-800/80 py-4 text-center text-xs text-slate-400 dark:text-slate-500">
     Liber2Api &copy; 2026. Built for LibertAI high-availability model proxying.
   </footer>
 
   <script>
-    // Initialize icons
-    lucide.createIcons();
+    // Icon rendering is cosmetic; a blocked CDN must not disable management.
+    function refreshIcons() {
+      try { window.lucide?.createIcons(); } catch (err) { console.warn('Icon rendering unavailable', err); }
+    }
 
-        // Global Web-Native Toast Notification System
+
+    // Every management endpoint uses the same non-2xx boundary, including HTML gateway errors.
+    async function checkedFetch(url, options) {
+      const resp = await fetch(url, options);
+      if (!resp.ok) {
+        let detail = '';
+        try {
+          const data = await resp.json();
+          detail = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail || data.message || '');
+        } catch (err) { /* Do not display raw HTML error documents. */ }
+        if (resp.status === 401 && url !== '/api/admin/login' && url !== '/api/admin/logout') window.location.reload();
+        throw new Error(`HTTP ${resp.status}${detail ? ': ' + detail : ''}`);
+      }
+      return resp;
+    }
+
+    // Only fixed action names and numeric list indexes enter markup, never executable data.
+    function bindActions(container, actions) {
+      container.querySelectorAll('button[data-action]').forEach(button => {
+        button.addEventListener('click', () => actions[button.dataset.action]?.(Number(button.dataset.index)));
+      });
+    }
+
+    async function copyValue(text) {
+      try {
+        await navigator.clipboard.writeText(text);
+        showToast('已成功复制完整内容到剪贴板！', 'success');
+      } catch (err) {
+        showToast('复制失败，请检查浏览器剪贴板权限: ' + err.message, 'error');
+      }
+    }
+
+    refreshIcons();
+
+    // Preserve focus and trap keyboard navigation while a dialog is open.
+    let activeModal = null;
+    let modalOpener = null;
+    function setModalOpen(id, open) {
+      const modal = document.getElementById(id);
+      if (!modal) return;
+      if (open) {
+        modalOpener = document.activeElement;
+        activeModal = modal;
+        modal.classList.remove('hidden');
+        (modal.querySelector('button, input, select') || modal).focus();
+      } else {
+        modal.classList.add('hidden');
+        if (activeModal === modal) {
+          activeModal = null;
+          modalOpener?.focus();
+          modalOpener = null;
+        }
+      }
+    }
+    document.addEventListener('keydown', event => {
+      if (!activeModal) return;
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setModalOpen(activeModal.getAttribute('id'), false);
+      } else if (event.key === 'Tab') {
+        const controls = Array.from(activeModal.querySelectorAll('button, input, select, textarea, a[href], [tabindex]'))
+          .filter(el => !el.disabled && el.getAttribute('tabindex') !== '-1');
+        const first = controls[0];
+        const last = controls[controls.length - 1];
+        if (!first) { event.preventDefault(); activeModal.focus(); }
+        else if (event.shiftKey && (document.activeElement === first || !activeModal.contains(document.activeElement))) {
+          event.preventDefault(); last.focus();
+        } else if (!event.shiftKey && (document.activeElement === last || !activeModal.contains(document.activeElement))) {
+          event.preventDefault(); first.focus();
+        }
+      }
+    });
+
+    // Global Web-Native Toast Notification System
     function showToast(message, type = 'info', duration = null) {
       const container = document.getElementById('toast-container');
       if (!container) return;
@@ -707,20 +769,20 @@
       toast.className += ' ' + styleClasses;
 
       const copyBtn = (type === 'error')
-        ? `<button onclick="copyRawError(this)" class="text-rose-400 hover:text-rose-600 dark:hover:text-rose-200 ml-1.5 p-0.5" title="复制完整报错信息"><i data-lucide="copy" class="w-3.5 h-3.5"></i></button>`
+        ? `<button onclick="copyRawError(this)" class="text-rose-400 hover:text-rose-600 dark:hover:text-rose-200 ml-1.5 p-0.5" aria-label="复制完整报错信息" title="复制完整报错信息"><i data-lucide="copy" class="w-3.5 h-3.5"></i></button>`
         : '';
 
       toast.innerHTML = `
         <i data-lucide="${icon}" class="w-4 h-4 shrink-0"></i>
         <span class="flex-1 leading-snug error-msg-content">${escapeHtml(message)}</span>
         ${copyBtn}
-        <button onclick="this.closest('.pointer-events-auto').remove()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 ml-1">
+        <button aria-label="关闭通知" onclick="this.closest('.pointer-events-auto').remove()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 ml-1">
           <i data-lucide="x" class="w-3.5 h-3.5"></i>
         </button>
       `;
 
       container.appendChild(toast);
-      lucide.createIcons();
+      refreshIcons();
 
       requestAnimationFrame(() => {
         toast.classList.remove('translate-y-2', 'opacity-0');
@@ -738,8 +800,7 @@
 
     function copyRawError(btn) {
       const text = btn.parentElement.querySelector('.error-msg-content')?.textContent || '';
-      navigator.clipboard.writeText(text);
-      showToast('已复制完整错误信息！', 'info', 2000);
+      return copyValue(text);
     }
 
     // Theme Management
@@ -786,7 +847,7 @@
       initThemeIcons();
       const menu = document.getElementById("theme-menu");
       if (menu) menu.classList.add("hidden");
-      lucide.createIcons();
+      refreshIcons();
     }
 
     // Listen to OS theme changes if on system mode
@@ -803,7 +864,8 @@
     // Admin Login Handler
     async function handleAdminLogin(e) {
       e.preventDefault();
-      const pass = document.getElementById("admin-pass-input").value;
+      const passInput = document.getElementById("admin-pass-input");
+      const pass = passInput.value;
       const feedback = document.getElementById("login-feedback");
       const btn = document.getElementById("btn-login");
       btn.disabled = true;
@@ -811,7 +873,7 @@
       feedback.classList.add("hidden");
 
       try {
-        const resp = await fetch("/api/admin/login", {
+        const resp = await checkedFetch("/api/admin/login", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ password: pass })
@@ -820,7 +882,8 @@
         if (!resp.ok) {
           throw new Error(data.detail || "密码错误");
         }
-        localStorage.setItem('liber2api_logged_in_pass', pass);
+        clearLegacyPassword();
+        passInput.value = "";
         window.location.reload();
       } catch (err) {
         feedback.innerText = err.message;
@@ -828,18 +891,18 @@
       } finally {
         btn.disabled = false;
         btn.innerHTML = "<i data-lucide=\"key-round\" class=\"w-4 h-4\"></i><span>登录控制台</span>";
-        lucide.createIcons();
+        refreshIcons();
       }
     }
 
     // Admin Logout Handler
     async function handleAdminLogout() {
       try {
-        await fetch("/api/admin/logout", { method: "POST" });
-        localStorage.setItem('liber2api_logged_in_pass', pass);
+        await checkedFetch("/api/admin/logout", { method: "POST" });
+        clearLegacyPassword();
         window.location.reload();
       } catch (err) {
-        console.error("Logout error:", err);
+        showToast('退出登录失败: ' + err.message, 'error');
       }
     }
 
@@ -850,21 +913,18 @@
 
     // Resin & Proxy Settings Management
     async function openProxyModal() {
-      const modal = document.getElementById('proxy-modal');
-      if (modal) modal.classList.remove('hidden');
+      setModalOpen('proxy-modal', true);
       loadProxySettings();
-      lucide.createIcons();
+      refreshIcons();
     }
 
     function closeProxyModal() {
-      const modal = document.getElementById('proxy-modal');
-      if (modal) modal.classList.add('hidden');
+      setModalOpen('proxy-modal', false);
     }
 
     async function loadProxySettings() {
       try {
-        const resp = await fetch('/api/settings/proxy');
-        if (!resp.ok) return;
+        const resp = await checkedFetch('/api/settings/proxy');
         const data = await resp.json();
 
         const pInput = document.getElementById('setting-proxy-url');
@@ -877,7 +937,7 @@
 
         updateProxyDisplayBadge(data);
       } catch (e) {
-        console.error('Failed to load proxy settings:', e);
+        showToast('加载代理配置失败: ' + e.message, 'error');
       }
     }
 
@@ -901,7 +961,7 @@
       btn.disabled = true;
 
       try {
-        const resp = await fetch('/api/settings/proxy', {
+        const resp = await checkedFetch('/api/settings/proxy', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -927,10 +987,10 @@
       const btn = document.getElementById('btn-auto-reg');
       btn.disabled = true;
       btn.innerHTML = '<i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i><span>正在自动接码建号...</span>';
-      lucide.createIcons();
+      refreshIcons();
 
       try {
-        const resp = await fetch('/api/accounts/auto-register', { method: 'POST' });
+        const resp = await checkedFetch('/api/accounts/auto-register', { method: 'POST' });
         let data = {};
         const contentType = resp.headers.get('content-type') || '';
         if (contentType.includes('application/json')) {
@@ -960,31 +1020,30 @@
       } finally {
         btn.disabled = false;
         btn.innerHTML = '<i data-lucide="sparkles" class="w-3.5 h-3.5"></i><span>一键自动注册新号</span>';
-        lucide.createIcons();
+        refreshIcons();
       }
     }
 
 
     // Multi-Token Modal & Policy Management
     async function openTokenModal() {
-      const modal = document.getElementById('token-modal');
-      if (modal) modal.classList.remove('hidden');
+      setModalOpen('token-modal', true);
       loadTokens();
-      lucide.createIcons();
+      refreshIcons();
     }
 
     function closeTokenModal() {
-      const modal = document.getElementById('token-modal');
-      if (modal) modal.classList.add('hidden');
+      setModalOpen('token-modal', false);
     }
 
     function generateRandomTokenInput() {
-      const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-      let rand = '';
-      for (let i = 0; i < 32; i++) {
-        rand += chars.charAt(Math.floor(Math.random() * chars.length));
+      if (!window.crypto?.getRandomValues) {
+        showToast('当前浏览器无法安全生成密钥，请留空由服务端生成。', 'error');
+        return;
       }
-      document.getElementById('new-token-val').value = 'sk-liber2api-' + rand;
+      const bytes = window.crypto.getRandomValues(new Uint8Array(32));
+      const rand = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+      document.getElementById('new-token-val').value = 'sk-' + rand;
     }
 
     async function loadTokens() {
@@ -992,8 +1051,7 @@
       if (!tbody) return;
 
       try {
-        const resp = await fetch('/api/tokens');
-        if (!resp.ok) return;
+        const resp = await checkedFetch('/api/tokens');
         const data = await resp.json();
 
         // Update auth policy toggle
@@ -1009,22 +1067,23 @@
         // Update dashboard API key display
         const keyDisp = document.getElementById('api-key-text');
         if (keyDisp) {
-          if (!data.auth_enabled) {
-            keyDisp.removeAttribute('data-raw');
-            keyDisp.innerText = '免密访问模式（留空即可）';
-          } else if (data.tokens && data.tokens.length > 0) {
-            const activeT = data.tokens.find(t => t.status === 'active') || data.tokens[0];
+          const activeT = data.auth_enabled && data.tokens?.find(t => t.status === 'active');
+          if (activeT) {
             setMaskedElementValue('api-key-text', activeT.token);
+          } else {
+            keyDisp.removeAttribute('data-raw');
+            keyDisp.setAttribute('data-masked', 'true');
+            keyDisp.innerText = data.auth_enabled ? '暂无可用 API Key，请添加或启用密钥' : '免密访问模式（留空即可）';
           }
         }
 
         // Render tokens table
         if (!data.tokens || data.tokens.length === 0) {
           tbody.innerHTML = '<tr><td colspan="5" class="py-6 text-center text-slate-400 dark:text-slate-500">暂无令牌，请在上方添加新令牌。</td></tr>';
-          return;
+          return true;
         }
 
-        tbody.innerHTML = data.tokens.map(t => {
+        tbody.innerHTML = data.tokens.map((t, index) => {
           const isActive = t.status === 'active';
           const badgeClass = isActive
             ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/60'
@@ -1036,7 +1095,7 @@
               <td class="py-2.5 px-3 font-medium text-slate-900 dark:text-slate-100 whitespace-nowrap">${escapeHtml(t.name)}</td>
               <td class="py-2.5 px-3 font-mono text-[11px] text-slate-600 dark:text-slate-300 whitespace-nowrap">
                 <span class="bg-slate-100 dark:bg-slate-950 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-800">${escapeHtml(t.token.slice(0, 10))}...${escapeHtml(t.token.slice(-6))}</span>
-                <button onclick="navigator.clipboard.writeText('${escapeHtml(t.token)}'); showToast('已复制完整 API Key 密钥！', 'success');" class="ml-1 text-slate-400 hover:text-sky-500" title="复制完整Token">
+                <button data-action="copy" data-index="${index}" class="ml-1 text-slate-400 hover:text-sky-500" title="复制完整Token">
                   <i data-lucide="copy" class="w-3 h-3 inline"></i>
                 </button>
               </td>
@@ -1047,20 +1106,27 @@
               </td>
               <td class="py-2.5 px-3 font-mono text-slate-600 dark:text-slate-400 whitespace-nowrap">${t.total_requests || 0}</td>
               <td class="py-2.5 px-3 text-right space-x-1.5 whitespace-nowrap shrink-0">
-                <button onclick="toggleTokenStatus(${t.id}, '${t.status}')" class="text-xs px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition whitespace-nowrap inline-block">
+                <button data-action="toggle" data-index="${index}" class="text-xs px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition whitespace-nowrap inline-block">
                   ${isActive ? '禁用' : '启用'}
                 </button>
-                <button onclick="deleteToken(${t.id})" class="text-xs px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700 hover:bg-rose-50 dark:hover:bg-rose-950/50 text-rose-600 dark:text-rose-400 transition whitespace-nowrap inline-block">
+                <button data-action="delete" data-index="${index}" class="text-xs px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700 hover:bg-rose-50 dark:hover:bg-rose-950/50 text-rose-600 dark:text-rose-400 transition whitespace-nowrap inline-block">
                   删除
                 </button>
               </td>
             </tr>
           `;
         }).join('');
-        lucide.createIcons();
+        bindActions(tbody, {
+          copy: index => copyValue(data.tokens[index].token),
+          toggle: index => toggleTokenStatus(data.tokens[index].id, data.tokens[index].status),
+          delete: index => deleteToken(data.tokens[index].id),
+        });
+        refreshIcons();
+        return true;
 
       } catch (err) {
-        console.error('Failed to load tokens:', err);
+        showToast('加载密钥失败: ' + err.message, 'error');
+        return false;
       }
     }
 
@@ -1075,7 +1141,7 @@
       btn.disabled = true;
 
       try {
-        const resp = await fetch('/api/tokens', {
+        const resp = await checkedFetch('/api/tokens', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: name, token: val || null })
@@ -1084,11 +1150,7 @@
         if (!resp.ok) throw new Error(data.detail || '创建失败');
         document.getElementById('new-token-name').value = '';
         document.getElementById('new-token-val').value = '';
-        loadTokens();
-        // Update display on dashboard
-        if (data.token) {
-          setMaskedElementValue('api-key-text', data.token.token);
-        }
+        await loadTokens();
       } catch (err) {
         showToast('创建密钥失败: ' + err.message, 'error');
       } finally {
@@ -1099,7 +1161,7 @@
     async function toggleTokenStatus(id, currentStatus) {
       const newStatus = currentStatus === 'active' ? 'disabled' : 'active';
       try {
-        const resp = await fetch(`/api/tokens/${id}/status`, {
+        const resp = await checkedFetch(`/api/tokens/${id}/status`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ status: newStatus })
@@ -1113,7 +1175,7 @@
     async function deleteToken(id) {
       if (!confirm('确定要删除此访问令牌吗？')) return;
       try {
-        const resp = await fetch(`/api/tokens/${id}`, { method: 'DELETE' });
+        const resp = await checkedFetch(`/api/tokens/${id}`, { method: 'DELETE' });
         if (resp.ok) loadTokens();
       } catch (err) {
         showToast('删除失败: ' + err.message, 'error');
@@ -1123,21 +1185,19 @@
     async function toggleAuthPolicy() {
       const toggle = document.getElementById('auth-policy-toggle');
       const isEnabled = toggle.checked;
+      toggle.disabled = true;
       try {
-        const resp = await fetch('/api/settings/auth-policy', {
+        await checkedFetch('/api/settings/auth-policy', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ enabled: isEnabled })
         });
-        if (resp.ok) {
-          loadTokens();
-          const disp = document.getElementById('api-key-text');
-          if (disp && !isEnabled) {
-            disp.innerText = '免密访问模式（留空即可）';
-          }
-        }
+        if (!await loadTokens()) throw new Error('无法读回鉴权策略，请刷新确认服务端状态');
       } catch (err) {
+        toggle.checked = !isEnabled;
         showToast('切换策略失败: ' + err.message, 'error');
+      } finally {
+        toggle.disabled = false;
       }
     }
 
@@ -1168,7 +1228,7 @@
       btn.innerText = '正在发送...';
 
       try {
-        const resp = await fetch('/api/auth/send-code', {
+        const resp = await checkedFetch('/api/auth/send-code', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email })
@@ -1187,7 +1247,7 @@
       } finally {
         btn.disabled = false;
         btn.innerHTML = '<i data-lucide="send" class="w-4 h-4"></i><span>获取验证码</span>';
-        lucide.createIcons();
+        refreshIcons();
       }
     }
 
@@ -1202,7 +1262,7 @@
       btn.innerText = '正在验证入库...';
 
       try {
-        const resp = await fetch('/api/auth/verify-code', {
+        const resp = await checkedFetch('/api/auth/verify-code', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email: activeEmail, code })
@@ -1214,13 +1274,12 @@
         showFeedback(`账号 ${activeEmail} 绑定成功，已加入可用号池！`, 'success');
         resetAddForm();
         loadAccounts();
-    loadProxySettings();
       } catch (err) {
         showFeedback(err.message, 'error');
       } finally {
         btn.disabled = false;
         btn.innerHTML = '<i data-lucide="check" class="w-4 h-4"></i><span>验证并存入号池</span>';
-        lucide.createIcons();
+        refreshIcons();
       }
     }
 
@@ -1230,7 +1289,7 @@
       document.getElementById('email-input').value = '';
       document.getElementById('code-input').value = '';
       activeEmail = '';
-      lucide.createIcons();
+      refreshIcons();
     }
 
     async function loadAccounts() {
@@ -1238,7 +1297,7 @@
       if (!tbody) return; // If on lock screen
 
       try {
-        const resp = await fetch('/api/accounts');
+        const resp = await checkedFetch('/api/accounts');
         if (resp.status === 401) {
           window.location.reload();
           return;
@@ -1261,7 +1320,7 @@
         }
 
         const now = new Date();
-        tbody.innerHTML = data.accounts.map(acc => {
+        tbody.innerHTML = data.accounts.map((acc, index) => {
           let badgeClass = 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/60';
           let statusText = '活跃 Active';
           let statusDetail = '';
@@ -1317,28 +1376,34 @@
               <td class="py-2.5 px-4 whitespace-nowrap">${statusDetail}</td>
               <td class="py-2.5 px-4 text-right whitespace-nowrap shrink-0">
                 <div class="inline-flex items-center justify-end gap-1.5 whitespace-nowrap">
-                  <button onclick="testAccount(${acc.id})" class="text-xs px-2 py-1 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-sky-600 dark:text-sky-400 transition whitespace-nowrap shrink-0" title="测试该号连通性">测试</button>
-                  <button onclick="refreshAccount(${acc.id})" class="text-xs px-2 py-1 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-indigo-600 dark:text-indigo-400 transition whitespace-nowrap shrink-0" title="手动轮转Token">刷新</button>
-                  ${acc.status === 'cooldown' ? `<button onclick="resetAccount(${acc.id})" class="text-xs px-2 py-1 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-amber-600 dark:text-amber-400 transition whitespace-nowrap shrink-0" title="强制解除冷却">解冻</button>` : ''}
-                  <button onclick="deleteAccount(${acc.id})" class="text-xs px-2 py-1 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-900/50 text-rose-600 dark:text-rose-400 transition whitespace-nowrap shrink-0" title="移除账号">删除</button>
+                  <button data-action="test" data-index="${index}" class="text-xs px-2 py-1 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-sky-600 dark:text-sky-400 transition whitespace-nowrap shrink-0" title="测试该号连通性">测试</button>
+                  <button data-action="refresh" data-index="${index}" class="text-xs px-2 py-1 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-indigo-600 dark:text-indigo-400 transition whitespace-nowrap shrink-0" title="手动轮转Token">刷新</button>
+                  ${acc.status === 'cooldown' ? `<button data-action="reset" data-index="${index}" class="text-xs px-2 py-1 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-amber-600 dark:text-amber-400 transition whitespace-nowrap shrink-0" title="强制解除冷却">解冻</button>` : ''}
+                  <button data-action="delete" data-index="${index}" class="text-xs px-2 py-1 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-900/50 text-rose-600 dark:text-rose-400 transition whitespace-nowrap shrink-0" title="移除账号">删除</button>
                 </div>
               </td>
             </tr>
           `;
         }).join('');
+        bindActions(tbody, {
+          test: index => testAccount(data.accounts[index].id),
+          refresh: index => refreshAccount(data.accounts[index].id),
+          reset: index => resetAccount(data.accounts[index].id),
+          delete: index => deleteAccount(data.accounts[index].id),
+        });
+        refreshIcons();
 
       } catch (err) {
-        console.error('Failed to load accounts:', err);
+        showToast('加载账号失败: ' + err.message, 'error');
       }
     }
 
     async function testAccount(id) {
       try {
-        const resp = await fetch(`/api/accounts/${id}/test`, { method: 'POST' });
+        const resp = await checkedFetch(`/api/accounts/${id}/test`, { method: 'POST' });
         const data = await resp.json();
         showToast(data.message || (data.success ? '测试连通性正常！' : '测试失败'), data.success ? 'success' : 'error');
         loadAccounts();
-    loadProxySettings();
       } catch (err) {
         showToast('测试请求异常: ' + err.message, 'error');
       }
@@ -1346,11 +1411,10 @@
 
     async function refreshAccount(id) {
       try {
-        const resp = await fetch(`/api/accounts/${id}/refresh`, { method: 'POST' });
+        const resp = await checkedFetch(`/api/accounts/${id}/refresh`, { method: 'POST' });
         const data = await resp.json();
         showToast(data.message || '账号已成功刷新并轮换 Token', 'success');
         loadAccounts();
-    loadProxySettings();
       } catch (err) {
         showToast('刷新请求异常: ' + err.message, 'error');
       }
@@ -1358,10 +1422,9 @@
 
     async function resetAccount(id) {
       try {
-        const resp = await fetch(`/api/accounts/${id}/reset`, { method: 'POST' });
+        const resp = await checkedFetch(`/api/accounts/${id}/reset`, { method: 'POST' });
         const data = await resp.json();
         loadAccounts();
-    loadProxySettings();
       } catch (err) {
         showToast('解冻异常: ' + err.message, 'error');
       }
@@ -1370,9 +1433,8 @@
     async function deleteAccount(id) {
       if (!confirm('确定要从号池中移除此账号吗？')) return;
       try {
-        await fetch(`/api/accounts/${id}`, { method: 'DELETE' });
+        await checkedFetch(`/api/accounts/${id}`, { method: 'DELETE' });
         loadAccounts();
-    loadProxySettings();
       } catch (err) {
         showToast('删除失败: ' + err.message, 'error');
       }
@@ -1430,7 +1492,7 @@
       if (btn) {
         const iconName = willMask ? 'eye' : 'eye-off';
         btn.innerHTML = `<i data-lucide="${iconName}" class="w-3.5 h-3.5"></i>`;
-        lucide.createIcons();
+        refreshIcons();
       }
     }
 
@@ -1438,26 +1500,22 @@
       const el = document.getElementById(elementId);
       if (!el) return;
       const text = el.getAttribute('data-raw') || el.innerText;
-      navigator.clipboard.writeText(text).then(() => {
-        showToast('已成功复制完整内容到剪贴板！', 'success');
-      });
+      return copyValue(text);
     }
 
     function escapeHtml(str) {
-      if (!str) return '';
+      if (str === null || str === undefined) return '';
       return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
 
     // Mail Providers Management (支持自定义邮箱接码接口)
     function openMailProviderModal() {
-      const modal = document.getElementById('mail-provider-modal');
-      if (modal) modal.classList.remove('hidden');
+      setModalOpen('mail-provider-modal', true);
       loadMailProviders();
     }
 
     function closeMailProviderModal() {
-      const modal = document.getElementById('mail-provider-modal');
-      if (modal) modal.classList.add('hidden');
+      setModalOpen('mail-provider-modal', false);
     }
 
     function handleMailTypeChange() {
@@ -1476,8 +1534,7 @@
 
     async function loadMailProviders() {
       try {
-        const resp = await fetch('/api/mail-providers');
-        if (!resp.ok) return;
+        const resp = await checkedFetch('/api/mail-providers');
         const data = await resp.json();
         const providers = data.providers || [];
 
@@ -1504,7 +1561,7 @@
           if (builtins.length === 0) {
             builtinList.innerHTML = '<div class="col-span-2 py-4 text-center text-slate-400">暂无内置源，请点击右上角重置恢复。</div>';
           } else {
-            builtinList.innerHTML = builtins.map(p => {
+            builtinList.innerHTML = builtins.map((p, index) => {
               const isActive = p.status === 'active';
               const desc = builtinDescs[p.provider_type] || '';
               return `
@@ -1523,13 +1580,13 @@
                   <div class="flex items-center justify-between pt-1.5 border-t border-slate-100 dark:border-slate-800/60">
                     <span class="text-[10px] text-slate-400 font-mono">优先级: ${p.priority}</span>
                     <div class="inline-flex items-center gap-1.5 shrink-0">
-                      <button onclick="testExistingMailProvider(${p.id}, '${escapeHtml(p.name)}', '${p.provider_type}', '${escapeHtml(p.api_url || '')}', '', '')" class="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-[11px] font-medium transition whitespace-nowrap">
+                      <button data-action="test" data-index="${index}" class="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-[11px] font-medium transition whitespace-nowrap">
                         测试
                       </button>
-                      <button onclick="toggleMailProvider(${p.id}, '${isActive ? 'disabled' : 'active'}')" class="px-2.5 py-1 rounded-lg ${isActive ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20'} text-[11px] font-medium transition whitespace-nowrap">
+                      <button data-action="toggle" data-index="${index}" class="px-2.5 py-1 rounded-lg ${isActive ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20'} text-[11px] font-medium transition whitespace-nowrap">
                         ${isActive ? '停用' : '启用'}
                       </button>
-                      <button onclick="deleteMailProvider(${p.id})" class="px-2.5 py-1 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-500/20 text-[11px] font-medium transition whitespace-nowrap">
+                      <button data-action="delete" data-index="${index}" class="px-2.5 py-1 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-500/20 text-[11px] font-medium transition whitespace-nowrap">
                         删除
                       </button>
                     </div>
@@ -1546,7 +1603,7 @@
           if (customs.length === 0) {
             customTbody.innerHTML = '<tr><td colspan="5" class="py-5 text-center text-slate-400 dark:text-slate-500 font-sans text-xs">暂无自定义接码接口，系统当前由上方官方内置源保障。</td></tr>';
           } else {
-            customTbody.innerHTML = customs.map(p => {
+            customTbody.innerHTML = customs.map((p, index) => {
               const isActive = p.status === 'active';
               const endpointDisplay = p.domain ? `@${p.domain}` : (p.api_url ? p.api_url.replace('https://', '') : '-');
               return `
@@ -1567,13 +1624,13 @@
                   </td>
                   <td class="py-2.5 px-3 text-right whitespace-nowrap shrink-0">
                     <div class="inline-flex items-center justify-end gap-1 whitespace-nowrap">
-                      <button onclick="testExistingMailProvider(${p.id}, '${escapeHtml(p.name)}', '${p.provider_type}', '${escapeHtml(p.api_url || '')}', '${escapeHtml(p.create_url || '')}', '${escapeHtml(p.domain || '')}')" class="px-2 py-1 rounded bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-[11px] transition whitespace-nowrap shrink-0">
+                      <button data-action="test" data-index="${index}" class="px-2 py-1 rounded bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-[11px] transition whitespace-nowrap shrink-0">
                         测试
                       </button>
-                      <button onclick="toggleMailProvider(${p.id}, '${isActive ? 'disabled' : 'active'}')" class="px-2 py-1 rounded ${isActive ? 'bg-amber-500/10 text-amber-600 hover:bg-amber-500/20' : 'bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20'} text-[11px] transition whitespace-nowrap shrink-0">
+                      <button data-action="toggle" data-index="${index}" class="px-2 py-1 rounded ${isActive ? 'bg-amber-500/10 text-amber-600 hover:bg-amber-500/20' : 'bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20'} text-[11px] transition whitespace-nowrap shrink-0">
                         ${isActive ? '停用' : '启用'}
                       </button>
-                      <button onclick="deleteMailProvider(${p.id})" class="px-2 py-1 rounded bg-rose-500/10 text-rose-600 hover:bg-rose-500/20 text-[11px] transition whitespace-nowrap shrink-0">
+                      <button data-action="delete" data-index="${index}" class="px-2 py-1 rounded bg-rose-500/10 text-rose-600 hover:bg-rose-500/20 text-[11px] transition whitespace-nowrap shrink-0">
                         删除
                       </button>
                     </div>
@@ -1583,15 +1640,22 @@
             }).join('');
           }
         }
-        lucide.createIcons();
+        for (const [container, items] of [[builtinList, builtins], [customTbody, customs]]) {
+          if (container) bindActions(container, {
+            test: index => testExistingMailProvider(items[index].id, items[index].name),
+            toggle: index => toggleMailProvider(items[index].id, items[index].status === 'active' ? 'disabled' : 'active'),
+            delete: index => deleteMailProvider(items[index].id),
+          });
+        }
+        refreshIcons();
       } catch (err) {
-        console.error('Failed to load mail providers:', err);
+        showToast('加载邮箱接口失败: ' + err.message, 'error');
       }
     }
 
     async function resetBuiltinProviders() {
       try {
-        const resp = await fetch('/api/mail-providers/reset-builtins', { method: 'POST' });
+        const resp = await checkedFetch('/api/mail-providers/reset-builtins', { method: 'POST' });
         const data = await resp.json();
         if (!resp.ok) throw new Error(data.detail || '重置失败');
         showToast(data.message || '已恢复全部官方内置接码源', 'success');
@@ -1605,7 +1669,8 @@
       const name = document.getElementById('new-mail-name').value.trim();
       const p_type = document.getElementById('new-mail-type').value;
       const domain = document.getElementById('new-mail-domain').value.trim();
-      const priority = parseInt(document.getElementById('new-mail-priority').value, 10) || 10;
+      const priorityInput = parseInt(document.getElementById('new-mail-priority').value, 10);
+      const priority = Number.isNaN(priorityInput) ? 10 : priorityInput;
       const api_url = document.getElementById('new-mail-api-url').value.trim();
       const create_url = document.getElementById('new-mail-create-url').value.trim();
       const api_key = document.getElementById('new-mail-key').value.trim();
@@ -1620,7 +1685,7 @@
       }
 
       try {
-        const resp = await fetch('/api/mail-providers', {
+        const resp = await checkedFetch('/api/mail-providers', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1650,7 +1715,7 @@
 
     async function toggleMailProvider(id, newStatus) {
       try {
-        const resp = await fetch(`/api/mail-providers/${id}/status`, {
+        const resp = await checkedFetch(`/api/mail-providers/${id}/status`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ status: newStatus })
@@ -1667,7 +1732,7 @@
     async function deleteMailProvider(id) {
       if (!confirm('确定要删除此邮箱接码接口吗？')) return;
       try {
-        const resp = await fetch(`/api/mail-providers/${id}`, { method: 'DELETE' });
+        const resp = await checkedFetch(`/api/mail-providers/${id}`, { method: 'DELETE' });
         const data = await resp.json();
         if (!resp.ok) throw new Error(data.detail || '删除失败');
         showToast('接口已删除', 'success');
@@ -1687,7 +1752,7 @@
 
       showToast('正在测试接口连通性...', 'info');
       try {
-        const resp = await fetch('/api/mail-providers/test', {
+        const resp = await checkedFetch('/api/mail-providers/test', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1706,20 +1771,11 @@
       }
     }
 
-    async function testExistingMailProvider(id, name, provider_type, api_url, create_url, domain) {
+    async function testExistingMailProvider(id, name) {
       showToast(`正在测试 [${name}] 接口...`, 'info');
       try {
-        const resp = await fetch('/api/mail-providers/test', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name,
-            provider_type,
-            api_url,
-            create_url: create_url || null,
-            domain: domain || null
-          })
-        });
+        // Server loads saved configuration and credentials; list API never exposes its secret.
+        const resp = await checkedFetch(`/api/mail-providers/${encodeURIComponent(id)}/test`, { method: 'POST' });
         const data = await resp.json();
         showToast(`[${name}] ${data.message}`, data.success ? 'success' : 'error');
       } catch (err) {
@@ -1728,9 +1784,12 @@
     }
 
     // Initial load
-    loadAccounts();
-    loadProxySettings();
-    loadMailProviders();
+    if (document.getElementById('accounts-table-body')) {
+      loadAccounts();
+      loadProxySettings();
+      loadMailProviders();
+      loadTokens();
+    }
 
     // Initialize masked display for API key
     const initKeyEl = document.getElementById('api-key-text');
@@ -1741,25 +1800,7 @@
       }
     }
 
-    // Auto-recover login state if session expired on fresh tab
-    (async function checkAutoLogin() {
-      const lockInput = document.getElementById('admin-pass-input');
-      const savedPass = localStorage.getItem('liber2api_logged_in_pass');
-      if (lockInput && savedPass) {
-        try {
-          const resp = await fetch('/api/admin/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ password: savedPass })
-          });
-          if (resp.ok) {
-            window.location.reload();
-          } else {
-            localStorage.removeItem('liber2api_logged_in_pass');
-          }
-        } catch (e) {}
-      }
-    })();
+    // Authentication is kept only in the server-issued HttpOnly session cookie.
 
   </script>
 </body>

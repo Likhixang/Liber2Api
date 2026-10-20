@@ -1,18 +1,19 @@
 import asyncio
 import logging
+import time
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 from app.config import (
     COOLDOWN_HOURS,
     AUTO_REFRESH_INTERVAL,
 )
 from app.database import (
     delete_account,
+    claim_next_account,
     get_all_accounts,
     get_active_accounts,
     get_account_by_id,
     mark_account_cooldown,
-    mark_account_invalid,
     update_account_tokens,
     update_account_usage,
     record_account_usage,
@@ -29,170 +30,152 @@ class PoolManager:
         self._lock = asyncio.Lock()
         self._worker_task: Optional[asyncio.Task] = None
         self._running = False
-        self._last_replenish_fail_time: float = 0
+        self._last_replenish_fail_time: float = float("-inf")
+        self._replenishing = False
+        self._refresh_tasks: Dict[int, asyncio.Task] = {}
 
-    async def get_next_account(self) -> Optional[Dict[str, Any]]:
+    async def get_next_account(self, exclude_ids=None) -> Optional[Dict[str, Any]]:
+        """Atomically reserve an LRU turn; exclusions are request-local.
+
+        Reservation advances scheduling time, not request counters; it balances
+        concurrent work rather than granting an exclusive account lease.
         """
-        Picks the next available active account.
-        Orders by last_used_at ascending (LRU).
-        If pool is exhausted, attempts emergency auto-registration on the fly.
-        """
+        account = await claim_next_account(exclude_ids)
+        if account:
+            return account
+        if exclude_ids or await get_active_accounts():
+            return None
         async with self._lock:
-            accounts = await get_active_accounts()
-            if not accounts:
-                import time
-                if time.time() - self._last_replenish_fail_time > 300:
-                    logger.warning("No active accounts available in pool! Attempting emergency auto-registration...")
-                    try:
-                        from app.auto_register import registrar
-                        new_acc = await registrar.register_account(max_wait_seconds=20)
-                        if new_acc:
-                            return new_acc
-                    except Exception as e:
-                        self._last_replenish_fail_time = time.time()
-                        logger.error("Emergency auto-registration failed (%s), backing off for 5 min", e)
+            if self._replenishing or time.monotonic() - self._last_replenish_fail_time < 300:
                 return None
-            return accounts[0]
+            self._replenishing = True
+        try:
+            from app.auto_register import registrar
+            new_account = await registrar.register_account(max_wait_seconds=20)
+            if new_account:
+                return await claim_next_account(exclude_ids)
+            self._last_replenish_fail_time = time.monotonic()
+        except Exception as exc:
+            self._last_replenish_fail_time = time.monotonic()
+            logger.warning("Emergency auto-registration failed: %s", exc)
+        finally:
+            self._replenishing = False
+        return None
+
+    @staticmethod
+    def _permanent_error(message: str) -> bool:
+        return any(marker in message.lower() for marker in (
+            "session expired", "invalid api key", "invalid refresh token",
+            "refresh token expired", "refresh token revoked", "user not found",
+            "account disabled", "account banned",
+        ))
 
     async def handle_response(
-        self,
-        account: Dict[str, Any],
-        status_code: int,
-        error_detail: str = "",
+        self, account: Dict[str, Any], status_code: int, error_detail: str = "",
     ) -> bool:
-        """
-        Handles post-response state updates for an account.
-        Returns True if the response was successful, False if account was marked cooldown/invalid.
+        """Count one attempt; True means HTTP success, not identity refresh success.
+
+        429 always cools down without identity refresh. Callers exclude all tried
+        IDs for their request. Confirmed permanent invalidity retains the existing
+        auto-removal policy, guarded by the exact credentials version.
         """
         account_id = account["id"]
-        if 200 <= status_code < 300:
-            await record_account_usage(account_id, success=True)
+        success = 200 <= status_code < 300
+        await record_account_usage(account_id, success=success)
+        if success:
             return True
-
-        if status_code in (401, 429):
-            refreshed, refresh_err = await self.refresh_account_with_error(account_id)
-            if refreshed:
-                # Token rotation succeeded, account can remain in rotation with updated key
-                return False
-
-            # Check if account session was permanently revoked / key invalid
-            is_dead = any(k in refresh_err.lower() or k in error_detail.lower() for k in [
-                "session expired", "invalid api key", "user not found", "account disabled", "account banned"
-            ])
-            if is_dead:
-                msg = f"凭证已失效/被风控注销 ({refresh_err or error_detail})"
-                logger.warning("Account %s permanently invalid: %s, automatically purging from pool", account["email"], msg)
-                await delete_account(account_id)
-                return False
-
-            # Otherwise, treat as temporary quota depletion
-            cooldown_until = datetime.now(timezone.utc) + timedelta(hours=COOLDOWN_HOURS)
-            msg = f"HTTP {status_code}: 额度已达上限，进入5小时自动冷却"
-            logger.warning("Account %s triggered %d (quota limit), cooling down until %s", account["email"], status_code, cooldown_until.isoformat())
-            await mark_account_cooldown(account_id, cooldown_until.isoformat(), msg)
+        if status_code not in (401, 429):
             return False
-
-        # Other 4xx/5xx errors
-        await record_account_usage(account_id, success=False)
+        current = await get_account_by_id(account_id)
+        version = account.get("credentials_version", 0)
+        if not current or current["credentials_version"] != version:
+            return False
+        seconds = max(60, COOLDOWN_HOURS * 3600) if status_code == 429 else 60
+        until = datetime.now(timezone.utc) + timedelta(seconds=seconds)
+        await mark_account_cooldown(account_id, until.isoformat(), f"HTTP {status_code}: temporary backoff",
+                                    count_failure=False, expected_version=version)
+        if status_code == 429:
+            return False
+        refreshed, _ = await self.refresh_account_with_error(account_id, expected_version=version)
+        if not refreshed and self._permanent_error(error_detail):
+            # Old chat-key evidence must never delete credentials rotated meanwhile.
+            await delete_account(account_id, expected_version=version)
         return False
 
     async def refresh_account(self, account_id: int) -> bool:
         ok, _ = await self.refresh_account_with_error(account_id)
         return ok
 
-    async def refresh_account_with_error(self, account_id: int) -> Tuple[bool, str]:
-        """
-        Manually or automatically refreshes tokens and chatApiKey for an account.
-        Returns (success: bool, error_message: str).
-        """
-        account = await get_account_by_id(account_id)
-        if not account:
-            return False, "账号在本地数据库中不存在"
+    async def refresh_account_with_error(self, account_id: int, *, expected_version: Optional[int] = None) -> Tuple[bool, str]:
+        """Share one in-flight rotation per account; guard writes/deletes by version."""
+        task = self._refresh_tasks.get(account_id)
+        if task is None:
+            task = asyncio.create_task(self._refresh_account_once(account_id, expected_version=expected_version))
+            self._refresh_tasks[account_id] = task
+            def forget(done):
+                if self._refresh_tasks.get(account_id) is done:
+                    self._refresh_tasks.pop(account_id, None)
+            task.add_done_callback(forget)
+        return await asyncio.shield(task)
 
-        try:
-            tokens = await self.client.refresh_tokens(account["refresh_token"], account_email=account["email"])
-            new_access_token = tokens["access_token"]
-            new_refresh_token = tokens["refresh_token"]
-
-            # Try to fetch fresh chatApiKey with new access token
-            try:
-                new_chat_key = await self.client.fetch_chat_api_key(new_access_token, account_email=account["email"])
-            except Exception as e:
-                logger.warning("Failed to fetch fresh chatApiKey during refresh, keeping previous: %s", e)
-                new_chat_key = account["chat_api_key"]
-
-            await update_account_tokens(
-                account_id=account_id,
-                access_token=new_access_token,
-                refresh_token=new_refresh_token,
-                chat_api_key=new_chat_key,
-            )
-            # Update usage info
-            try:
-                import json
-                sub = await self.client.get_subscription(new_access_token, account_email=account["email"])
-                if sub:
-                    await update_account_usage(account_id, json.dumps(sub))
-            except Exception:
-                pass
-
-            logger.info("Successfully refreshed account %s", account["email"])
-            return True, ""
-        except Exception as e:
-            logger.error("Failed to refresh account %s: %s", account["email"], e)
-            return False, str(e)
-
-    async def test_account(self, account_id: int) -> Tuple[bool, str]:
-        """
-        Tests if an account's chat_api_key is working by performing a minimal 1-token completion probe.
-        If completion returns 401/429, marks cooldown instead of invalid or deleting.
-        """
+    async def _refresh_account_once(self, account_id: int, *, expected_version: Optional[int] = None) -> Tuple[bool, str]:
         account = await get_account_by_id(account_id)
         if not account:
             return False, "Account not found"
-
+        version = account["credentials_version"]
+        if expected_version is not None and version != expected_version:
+            return False, "Credentials changed before refresh; stale response ignored"
         try:
-            status, _ = await self.client.forward_completion_json(
+            tokens = await self.client.refresh_tokens(account["refresh_token"], account_email=account["email"])
+            access = tokens.get("access_token")
+            refresh = tokens.get("refresh_token")
+            if not isinstance(access, str) or not access.strip() or not isinstance(refresh, str) or not refresh.strip():
+                return False, "Refresh returned empty credentials"
+        except Exception as exc:
+            # Network errors alone are not revocation evidence, even when a proxy's
+            # error text happens to contain one of the permanent-error phrases.
+            if isinstance(exc, LibertAIException) and exc.status_code in (401, 403) and self._permanent_error(str(exc)):
+                await delete_account(account_id, expected_version=version)
+            return False, str(exc)
+        # Save the rotated refresh token before attempting the separate key fetch.
+        if not await update_account_tokens(account_id, access, refresh, expected_version=version):
+            return False, "Credentials changed during refresh; stale result ignored"
+        version += 1
+        try:
+            key = await self.client.fetch_chat_api_key(access, account_email=account["email"])
+            if not isinstance(key, str) or not key.strip():
+                return False, "Chat key refresh returned an empty key"
+        except Exception as exc:
+            return False, f"Tokens rotated but chat key unavailable: {exc}"
+        if not await update_account_tokens(account_id, access, refresh, key, expected_version=version):
+            return False, "Credentials changed during key refresh; stale result ignored"
+        try:
+            import json
+            subscription = await asyncio.wait_for(
+                self.client.get_subscription(access, account_email=account["email"]), timeout=1.0,
+            )
+            if subscription:
+                await update_account_usage(account_id, json.dumps(subscription))
+        except Exception:
+            pass
+        return True, ""
+
+    async def test_account(self, account_id: int) -> Tuple[bool, str]:
+        """One probe, with the same response policy and accounting as forwarding."""
+        account = await get_account_by_id(account_id)
+        if not account:
+            return False, "Account not found"
+        try:
+            status, body = await self.client.forward_completion_json(
                 account["chat_api_key"],
                 {"model": "qwen3.6-35b-a3b", "messages": [{"role": "user", "content": "1"}], "max_tokens": 1},
                 account_email=account["email"],
             )
-            if status == 200:
-                await record_account_usage(account_id, success=True)
-                return True, "账号状态活跃正常"
-            elif status in (401, 429):
-                refreshed, refresh_err = await self.refresh_account_with_error(account_id)
-                if refreshed:
-                    acc_new = await get_account_by_id(account_id)
-                    if acc_new:
-                        s2, _ = await self.client.forward_completion_json(
-                            acc_new["chat_api_key"],
-                            {"model": "qwen3.6-35b-a3b", "messages": [{"role": "user", "content": "1"}], "max_tokens": 1},
-                            account_email=acc_new["email"],
-                        )
-                        if s2 == 200:
-                            await record_account_usage(account_id, success=True)
-                            return True, "账号刷新后恢复正常"
-
-                # Check if account is permanently revoked vs in cooldown
-                is_dead = any(k in refresh_err.lower() for k in [
-                    "session expired", "invalid api key", "user not found", "account disabled", "account banned"
-                ])
-                if is_dead:
-                    msg = f"凭证已失效/被风控注销: {refresh_err}，已自动从号池剔除"
-                    logger.warning("Account %s permanently dead: %s, automatically purging", account["email"], msg)
-                    await delete_account(account_id)
-                    return False, msg
-
-                cooldown_until = datetime.now(timezone.utc) + timedelta(hours=COOLDOWN_HOURS)
-                msg = f"HTTP {status} 额度已达上限，进入冷却中"
-                await mark_account_cooldown(account_id, cooldown_until.isoformat(), msg)
-                return False, msg
-            else:
-                await record_account_usage(account_id, success=False)
-                return False, f"HTTP {status}"
-        except Exception as e:
-            return False, f"Network error: {str(e)}"
+            ok = await self.handle_response(account, status, str(body))
+            return ok, "账号状态活跃正常" if ok else f"HTTP {status}"
+        except Exception as exc:
+            await record_account_usage(account_id, success=False)
+            return False, f"Network error: {exc}"
 
     async def reset_cooldown(self, account_id: int) -> bool:
         account = await get_account_by_id(account_id)
@@ -300,10 +283,7 @@ class PoolManager:
                     logger.info("Running scheduled token rotation across account pool")
                     for acc in await get_all_accounts():
                         if acc["status"] != "invalid":
-                            ok, err = await self.refresh_account_with_error(acc["id"])
-                            if not ok and any(k in err.lower() for k in ["session expired", "invalid api key"]):
-                                logger.warning("Account %s session expired during rotation, purging from pool: %s", acc["email"], err)
-                                await delete_account(acc["id"])
+                            await self.refresh_account_with_error(acc["id"])
                             await asyncio.sleep(2)
 
             except asyncio.CancelledError:

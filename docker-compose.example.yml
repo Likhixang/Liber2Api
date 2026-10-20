@@ -1,0 +1,29 @@
+services:
+  liber2api:
+    image: ghcr.io/likhixang/liber2api:latest
+    container_name: liber2api
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${LIBER2API_PORT:-8035}:8000"
+    environment:
+      PORT: "8000"
+      HOST: "0.0.0.0"
+      DATA_DIR: /app/data
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in the deployment environment}
+      API_KEY: ${API_KEY:-}
+      PROXY_URL: ${PROXY_URL:-}
+      RESIN_URL: ${RESIN_URL:-}
+      RESIN_PLATFORM_NAME: ${RESIN_PLATFORM_NAME:-Default}
+      ADMIN_ALLOWED_ORIGINS: ${ADMIN_ALLOWED_ORIGINS:-}
+      # Explicitly set to the real trusted reverse proxy IP/CIDR, never "*".
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
+      COOLDOWN_HOURS: "5"
+      AUTO_REFRESH_INTERVAL: "43200"
+    volumes:
+      - ./data:/app/data
+    networks:
+      - docker_share
+
+networks:
+  docker_share:
+    external: true

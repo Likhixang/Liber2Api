@@ -123,10 +123,22 @@ def resolve_upstream_model(
     payload_data = payload or {}
     headers_data = headers or {}
 
-    # Check TEE intent
-    wants_tee = had_tee or bool(payload_data.get("tee")) or (headers_data.get("x-tee", "").lower() == "true")
-    if base_name in TEE_ONLY_BASES:
-        wants_tee = True
+    # Parse explicit security intent rather than treating strings like "false" as true.
+    def tee_flag(value):
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str) and value.strip().lower() in ("true", "false", "1", "0"):
+            return value.strip().lower() in ("true", "1")
+        raise ValueError("tee must be a boolean or true/false/1/0 string")
+
+    payload_tee = tee_flag(payload_data["tee"]) if "tee" in payload_data else False
+    header_tee = False
+    for key, value in headers_data.items():
+        if key.lower() == "x-tee":
+            header_tee = tee_flag(value) or header_tee
+    wants_tee = had_tee or payload_tee or header_tee or base_name in TEE_ONLY_BASES
+    if wants_tee and base_name not in TEE_CAPABLE_BASES | TEE_ONLY_BASES:
+        raise ValueError(f"TEE is not available for model '{requested_model}'; refusing non-TEE fallback")
 
     # Check Thinking / Reasoning intent
     # Default is medium (Thinking enabled) unless client explicitly specifies reasoning_effort == "none"

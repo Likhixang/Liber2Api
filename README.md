@@ -41,46 +41,22 @@ Liber2Api provides an OpenAI-compatible reverse proxy gateway for LibertAI model
 
 ### Docker Compose (Recommended)
 
-```yaml
-services:
-  liber2api:
-    image: ghcr.io/likhixang/liber2api:latest
-    container_name: liber2api
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:8000:8000"
-    environment:
-      - PORT=8000
-      - HOST=0.0.0.0
-      - DATA_DIR=/app/data
-      # - ADMIN_PASSWORD=your_secure_password
-      # - PROXY_URL=http://user:pass@proxy:port
-    volumes:
-      - ./data:/app/data
-    networks:
-      - docker_share
-
-networks:
-  docker_share:
-    external: true
-```
-
-Run:
+Keep deployment secrets out of Git. Copy the example only when creating a new local configuration; do not overwrite an existing deployment file.
 
 ```bash
+test -e docker-compose.yml || cp docker-compose.example.yml docker-compose.yml
+docker network inspect docker_share >/dev/null 2>&1 || docker network create docker_share
+# Fresh installations: prepare the bind mount for the image's UID.
+sudo install -d -m 0700 -o 10001 -g 10001 data
+# Obtain ADMIN_PASSWORD from your secret manager or export it without saving it in Git.
+read -rsp "Admin password: " ADMIN_PASSWORD; export ADMIN_PASSWORD; printf '\n'
+docker compose config --quiet
 docker compose up -d
 ```
 
-Access the dashboard at `http://localhost:8000`.
+The example publishes only `127.0.0.1:8035`; use `http://localhost:8035` on the Docker host, or a trusted reverse proxy. Do not set data permissions to `0777`. Review ownership and back up existing data before changing its permissions. Management authentication and downstream API authentication are independent.
 
----
-
-### Docker CLI
-
-```bash
-mkdir -p data
-docker run -d   --name liber2api   --restart unless-stopped   -p 127.0.0.1:8000:8000   -v $(pwd)/data:/app/data   ghcr.io/likhixang/liber2api:latest
-```
+`docker-compose.yml`, `.env*` and data are local-only. The public file is `docker-compose.example.yml`. Removing a leaked secret from Git does not revoke it: rotate it separately. `/health` reports process liveness; `/ready` returns 503 when no account can be scheduled, without triggering registration.
 
 ---
 
@@ -114,6 +90,16 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 ---
 
+
+### 鉴权与监听机制 / Authentication
+
+- `ADMIN_PASSWORD` 保护管理 API；仅可信本地开发可以留空，部署 example 强制要求设置。
+- `API_KEY` 按不同值一次性导入托管令牌表；WebUI 禁用或删除后，重启不会重新启用。下游 API 鉴权开关与管理认证独立。
+- `ADMIN_SESSION_TTL` 是服务端校验的会话秒数，默认 `2592000`；退出撤销当前会话，改管理密码会令旧会话失效。
+- `ADMIN_ALLOWED_ORIGINS` 是逗号分隔的可信管理来源，用于特殊反代；默认同源即可。`/v1` 使用 Bearer，不使用管理 Cookie。
+- HTTPS 反代需保留外部 `Host` 并设置 `X-Forwarded-Proto`，`FORWARDED_ALLOW_IPS` 仅填实际可信反代 IP/CIDR（不要填 `*`）。否则同源校验和 Secure Cookie 无法正确识别外部 HTTPS。
+- Docker 入口读取 `HOST` / `PORT`；若改容器端口须同时修改 Compose 目标端口。example 内部固定 `8000`，宿主端口通过 `LIBER2API_PORT` 调整。
+
 ## 🔌 API Usage
 
 ### OpenAI Python SDK
@@ -122,7 +108,7 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 from openai import OpenAI
 
 client = OpenAI(
-    base_url="http://localhost:8000/v1",
+    base_url="http://localhost:8035/v1",
     api_key="your_api_key_or_placeholder"
 )
 
@@ -141,7 +127,7 @@ print()
 ### cURL
 
 ```bash
-curl -X POST http://localhost:8000/v1/chat/completions   -H "Content-Type: application/json"   -H "Authorization: Bearer sk-liber2api-xxx"   -d '{
+curl -X POST http://localhost:8035/v1/chat/completions   -H "Content-Type: application/json"   -H "Authorization: Bearer sk-liber2api-xxx"   -d '{
     "model": "deepseek-v4.1-flash",
     "messages": [{"role": "user", "content": "Hello!"}],
     "stream": false

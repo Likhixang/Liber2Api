@@ -16,3 +16,10 @@ data/
 .pytest_cache
 tests/
 *.log
+.env
+.env.*
+*.pem
+*.key
+secrets/
+docker-compose.yml
+docker-compose.override.yml

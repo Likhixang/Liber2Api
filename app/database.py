@@ -1,6 +1,9 @@
+import hashlib
+import os
+
 import aiosqlite
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 import app.config as config
 from app.config import DATABASE_PATH
 
@@ -10,7 +13,20 @@ def _utc_now_str() -> str:
 
 
 async def init_db() -> None:
-    DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    # Restrict newly created paths only; existing deployment permissions are untouched.
+    missing = []
+    parent = DATABASE_PATH.parent
+    while not parent.exists():
+        missing.append(parent)
+        parent = parent.parent
+    for directory in reversed(missing):
+        directory.mkdir(mode=0o700, exist_ok=True)
+    try:
+        fd = os.open(DATABASE_PATH, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError:
+        pass
+    else:
+        os.close(fd)
     async with aiosqlite.connect(DATABASE_PATH) as db:
         await db.execute(
             """
@@ -62,24 +78,21 @@ async def init_db() -> None:
         )
         await db.commit()
 
-        # Migrate existing single api_key from settings table if present
-        cursor = await db.execute("SELECT value FROM settings WHERE key = 'api_key'")
-        row = await cursor.fetchone()
-        if row and row[0]:
-            legacy_key = row[0].strip()
-            if legacy_key:
-                c2 = await db.execute("SELECT id FROM api_tokens WHERE token = ?", (legacy_key,))
-                if not await c2.fetchone():
-                    now = _utc_now_str()
-                    await db.execute(
-                        "INSERT INTO api_tokens (name, token, status, created_at) VALUES (?, ?, 'active', ?)",
-                        ("默认令牌", legacy_key, now),
-                    )
-                    await db.commit()
+        await db.execute(
+            """CREATE TABLE IF NOT EXISTS admin_sessions (
+                token_hash TEXT PRIMARY KEY,
+                expires_at TEXT NOT NULL,
+                password_fingerprint TEXT NOT NULL
+            )"""
+        )
+        await db.commit()
 
         # Check if usage_info column exists in accounts table
         c_info = await db.execute("PRAGMA table_info(accounts)")
         columns = [r[1] for r in await c_info.fetchall()]
+        if "credentials_version" not in columns:
+            await db.execute("ALTER TABLE accounts ADD COLUMN credentials_version INTEGER NOT NULL DEFAULT 0")
+            await db.commit()
         if "usage_info" not in columns:
             await db.execute("ALTER TABLE accounts ADD COLUMN usage_info TEXT NULL")
             await db.commit()
@@ -122,6 +135,8 @@ async def init_db() -> None:
                 )
             await db.commit()
 
+    await bootstrap_auth_tokens()
+
 
 async def add_or_update_account(
     email: str,
@@ -142,6 +157,7 @@ async def add_or_update_account(
                 access_token = excluded.access_token,
                 refresh_token = excluded.refresh_token,
                 chat_api_key = excluded.chat_api_key,
+                credentials_version = accounts.credentials_version + 1,
                 status = 'active',
                 cooldown_until = NULL,
                 updated_at = excluded.updated_at,
@@ -184,7 +200,8 @@ async def get_active_accounts() -> List[Dict[str, Any]]:
         cursor = await db.execute(
             """
             SELECT * FROM accounts
-            WHERE status != 'invalid'
+            WHERE status IN ('active', 'cooldown')
+              AND trim(chat_api_key) != ''
               AND (cooldown_until IS NULL OR cooldown_until <= ?)
             ORDER BY COALESCE(last_used_at, '1970-01-01T00:00:00') ASC, id ASC
             """,
@@ -194,70 +211,97 @@ async def get_active_accounts() -> List[Dict[str, Any]]:
         return [dict(r) for r in rows]
 
 
+async def claim_next_account(exclude_ids: Optional[Iterable[int]] = None) -> Optional[Dict[str, Any]]:
+    """Atomically reserve LRU scheduling time, without counting a completed request."""
+    excluded = tuple(set(exclude_ids or ()))
+    exclusion = " AND id NOT IN (" + ",".join("?" for _ in excluded) + ")" if excluded else ""
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        await db.execute("BEGIN IMMEDIATE")
+        now = _utc_now_str()
+        cursor = await db.execute(
+            """SELECT * FROM accounts
+               WHERE status IN ('active', 'cooldown')
+                 AND trim(chat_api_key) != ''
+                 AND (cooldown_until IS NULL OR cooldown_until <= ?)""" + exclusion +
+            " ORDER BY COALESCE(last_used_at, '1970-01-01T00:00:00') ASC, id ASC LIMIT 1",
+            (now, *excluded),
+        )
+        row = await cursor.fetchone()
+        if not row:
+            await db.commit()
+            return None
+        await db.execute("UPDATE accounts SET last_used_at = ? WHERE id = ?", (now, row["id"]))
+        await db.commit()
+        return {**dict(row), "last_used_at": now}
+
+
 async def update_account_tokens(
     account_id: int,
     access_token: str,
     refresh_token: str,
     chat_api_key: Optional[str] = None,
-) -> None:
-    now = _utc_now_str()
+    *,
+    expected_version: Optional[int] = None,
+) -> bool:
+    """Compare-and-swap credentials; reject results from an obsolete refresh."""
+    if not access_token or not refresh_token:
+        raise ValueError("Access and refresh tokens must be nonempty")
+    condition = " AND credentials_version = ?" if expected_version is not None else ""
+    params = [access_token, refresh_token, chat_api_key, _utc_now_str(), account_id]
+    if expected_version is not None:
+        params.append(expected_version)
     async with aiosqlite.connect(DATABASE_PATH) as db:
-        if chat_api_key:
-            await db.execute(
-                """
-                UPDATE accounts
-                SET access_token = ?, refresh_token = ?, chat_api_key = ?, updated_at = ?
-                WHERE id = ?
-                """,
-                (access_token, refresh_token, chat_api_key, now, account_id),
-            )
-        else:
-            await db.execute(
-                """
-                UPDATE accounts
-                SET access_token = ?, refresh_token = ?, updated_at = ?
-                WHERE id = ?
-                """,
-                (access_token, refresh_token, now, account_id),
-            )
-        await db.commit()
-
-
-async def mark_account_cooldown(account_id: int, cooldown_until_iso: str, error_msg: str) -> None:
-    now = _utc_now_str()
-    async with aiosqlite.connect(DATABASE_PATH) as db:
-        await db.execute(
-            """
-            UPDATE accounts
-            SET status = 'cooldown',
-                cooldown_until = ?,
-                last_error = ?,
-                updated_at = ?,
-                total_requests = total_requests + 1,
-                failed_requests = failed_requests + 1
-            WHERE id = ?
-            """,
-            (cooldown_until_iso, error_msg, now, account_id),
+        cursor = await db.execute(
+            """UPDATE accounts
+               SET access_token = ?, refresh_token = ?, chat_api_key = COALESCE(?, chat_api_key),
+                   updated_at = ?, credentials_version = credentials_version + 1
+               WHERE id = ?""" + condition,
+            params,
         )
         await db.commit()
+        return cursor.rowcount > 0
 
 
-async def mark_account_invalid(account_id: int, error_msg: str) -> None:
-    now = _utc_now_str()
+async def _mark_account_state(
+    account_id: int, status: str, cooldown_until: Optional[str], error_msg: str,
+    *, count_failure: bool, expected_version: Optional[int],
+) -> bool:
+    condition = " AND credentials_version = ?" if expected_version is not None else ""
+    # An unrelated later failure must not remove a reversible invalid quarantine.
+    if status == "cooldown":
+        condition += " AND status != 'invalid'"
+    params = [status, cooldown_until, error_msg, _utc_now_str(), int(count_failure), int(count_failure), account_id]
+    if expected_version is not None:
+        params.append(expected_version)
     async with aiosqlite.connect(DATABASE_PATH) as db:
-        await db.execute(
-            """
-            UPDATE accounts
-            SET status = 'invalid',
-                last_error = ?,
-                updated_at = ?,
-                total_requests = total_requests + 1,
-                failed_requests = failed_requests + 1
-            WHERE id = ?
-            """,
-            (error_msg, now, account_id),
+        cursor = await db.execute(
+            """UPDATE accounts
+               SET status = ?, cooldown_until = ?, last_error = ?, updated_at = ?,
+                   total_requests = total_requests + ?, failed_requests = failed_requests + ?
+               WHERE id = ?""" + condition,
+            params,
         )
         await db.commit()
+        return cursor.rowcount > 0
+
+
+async def mark_account_cooldown(
+    account_id: int, cooldown_until_iso: str, error_msg: str,
+    *, count_failure: bool = True, expected_version: Optional[int] = None,
+) -> bool:
+    """Reversible cooldown; count_failure=False when the caller already recorded usage."""
+    return await _mark_account_state(account_id, "cooldown", cooldown_until_iso, error_msg,
+                                     count_failure=count_failure, expected_version=expected_version)
+
+
+async def mark_account_invalid(
+    account_id: int, error_msg: str,
+    *, count_failure: bool = True, expected_version: Optional[int] = None,
+) -> bool:
+    """Quarantine, never delete; expected_version guards stale upstream results."""
+    return await _mark_account_state(account_id, "invalid", None, error_msg,
+                                     count_failure=count_failure, expected_version=expected_version)
 
 
 async def reset_account_status(account_id: int) -> None:
@@ -306,9 +350,11 @@ async def record_account_usage(account_id: int, success: bool) -> None:
         await db.commit()
 
 
-async def delete_account(account_id: int) -> bool:
+async def delete_account(account_id: int, *, expected_version: Optional[int] = None) -> bool:
+    condition = " AND credentials_version = ?" if expected_version is not None else ""
+    params = (account_id, expected_version) if expected_version is not None else (account_id,)
     async with aiosqlite.connect(DATABASE_PATH) as db:
-        cursor = await db.execute("DELETE FROM accounts WHERE id = ?", (account_id,))
+        cursor = await db.execute("DELETE FROM accounts WHERE id = ?" + condition, params)
         await db.commit()
         return cursor.rowcount > 0
 
@@ -410,6 +456,59 @@ async def set_setting(key: str, value: str) -> None:
 # ---------------------------------------------------------
 # Multi-Token Management
 # ---------------------------------------------------------
+
+async def bootstrap_auth_tokens() -> None:
+    """Import each configured key once; a durable tombstone preserves revocations."""
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute("BEGIN IMMEDIATE")
+        cursor = await db.execute("SELECT value FROM settings WHERE key = 'api_key'")
+        row = await cursor.fetchone()
+        candidates = (("environment", config.API_KEY), ("legacy", row[0] if row else ""))
+        for source, value in candidates:
+            value = (value or "").strip()
+            if not value:
+                continue
+            marker = f"auth_bootstrap:{source}:{hashlib.sha256(value.encode()).hexdigest()}"
+            cursor = await db.execute("SELECT 1 FROM settings WHERE key = ?", (marker,))
+            if await cursor.fetchone():
+                continue
+            await db.execute(
+                "INSERT OR IGNORE INTO api_tokens (name, token, status, created_at) VALUES (?, ?, 'active', ?)",
+                ("环境令牌" if source == "environment" else "默认令牌", value, _utc_now_str()),
+            )
+            await db.execute("INSERT INTO settings (key, value) VALUES (?, '1')", (marker,))
+        await db.commit()
+
+
+async def get_api_token_by_value(token: str) -> Optional[Dict[str, Any]]:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT * FROM api_tokens WHERE token = ?", (token,))
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+
+async def create_admin_session(token_hash: str, expires_at: str, password_fingerprint: str) -> None:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            "INSERT INTO admin_sessions (token_hash, expires_at, password_fingerprint) VALUES (?, ?, ?)",
+            (token_hash, expires_at, password_fingerprint),
+        )
+        await db.commit()
+
+
+async def get_admin_session(token_hash: str) -> Optional[Dict[str, Any]]:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT * FROM admin_sessions WHERE token_hash = ?", (token_hash,))
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+
+async def delete_admin_session(token_hash: str) -> None:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute("DELETE FROM admin_sessions WHERE token_hash = ?", (token_hash,))
+        await db.commit()
 
 async def create_api_token(name: str, token: str) -> Dict[str, Any]:
     now = _utc_now_str()

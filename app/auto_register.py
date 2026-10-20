@@ -1,13 +1,15 @@
 import asyncio
+import json
 import logging
 import re
 import secrets
 import time
-from typing import Any, Dict, List, Optional, Set
-from urllib.parse import urlparse
+from typing import Any, Dict, Optional
+from string import Formatter
+from urllib.parse import quote, urlencode, urlparse
 import httpx
 from app.database import add_or_update_account, get_active_mail_providers, update_account_usage
-from app.libertai_client import LibertAIClient, resolve_forward_proxy
+from app.libertai_client import LibertAIClient, LibertAIException, resolve_forward_proxy
 
 logger = logging.getLogger("liber2api.auto_register")
 
@@ -30,6 +32,48 @@ def is_domain_rejected(domain: str) -> bool:
 
 def mark_domain_rejected(domain: str, ttl_seconds: int = 300):
     REJECTED_DOMAINS[domain] = time.time() + ttl_seconds
+
+
+def _validate_mail_url(url: str, *, template: bool = False) -> None:
+    if not isinstance(url, str) or not url.strip():
+        raise ValueError("An explicit mail API URL is required")
+    fields = list(Formatter().parse(url))
+    for _, field, spec, conversion in fields:
+        if field is not None and (not template or field != "email" or spec or conversion):
+            raise ValueError("Only the {email} mail URL placeholder is supported")
+    parsed = urlparse(url.replace("{email}", "mailbox"))
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise ValueError("Mail API URL must be absolute HTTP(S)")
+    _ = parsed.port  # Validate malformed/out-of-range ports before any network call.
+
+
+def validate_mail_provider(provider: Dict[str, Any]) -> None:
+    """Validate before requesting an OTP; shared by registration and admin routes."""
+    kind = provider.get("provider_type")
+    if kind in ("custom_http", "inbound_webhook"):
+        _validate_mail_url(provider.get("api_url", ""), template=True)
+        if provider.get("create_url"):
+            _validate_mail_url(provider["create_url"])
+        if kind == "inbound_webhook" and not (provider.get("domain") or "").strip():
+            raise ValueError("Inbound mail requires an explicit domain")
+    elif provider.get("api_url"):
+        _validate_mail_url(provider["api_url"])
+
+
+def mail_auth_headers(provider: Dict[str, Any]) -> Dict[str, str]:
+    key = (provider.get("api_key") or "").strip()
+    if not key:
+        return {}
+    if key.startswith(("Bearer ", "Basic ")):
+        return {"Authorization": key}
+    return {"Authorization": f"Bearer {key}", "X-API-Key": key}
+
+
+def _poll_url(template: str, email: str) -> str:
+    _validate_mail_url(template, template=True)
+    if "{email}" in template:
+        return template.format(email=quote(email, safe=""))
+    return template + ("&" if "?" in template else "?") + urlencode({"email": email})
 
 
 class TempMailRegistrar:
@@ -68,16 +112,10 @@ class TempMailRegistrar:
         - api_url (required): GET URL to poll for verification code, supports {email} placeholder.
           Response can be JSON with {"code": "123456"} or text containing the 6-digit code.
         """
-        headers = {}
-        if provider.get("api_key"):
-            key = provider["api_key"].strip()
-            if key.startswith("Bearer ") or key.startswith("Basic "):
-                headers["Authorization"] = key
-            else:
-                headers["Authorization"] = f"Bearer {key}"
-                headers["X-API-Key"] = key
+        headers = mail_auth_headers(provider)
 
         try:
+            validate_mail_provider({**provider, "provider_type": "custom_http"})
             email = None
             create_url = provider.get("create_url")
             domain = (provider.get("domain") or "").strip()
@@ -102,19 +140,14 @@ class TempMailRegistrar:
                 return None
 
             # Request login OTP from LibertAI
-            r_lib = await client.post(
-                "https://inference.api.libertai.io/auth/login/email",
-                json={"email": email, "redirect_base": "https://chat.libertai.io"},
-            )
-            if r_lib.status_code != 204:
-                return None
+            await self.libertai_client.send_login_email(email)
 
             api_url = provider.get("api_url", "")
             if not api_url:
                 return None
 
             # Poll for verification code
-            poll_url = api_url.format(email=email) if "{email}" in api_url else f"{api_url}?email={email}"
+            poll_url = _poll_url(api_url, email)
 
             for _ in range(12):
                 await asyncio.sleep(2.5)
@@ -146,6 +179,106 @@ class TempMailRegistrar:
             logger.debug("Custom provider %s error: %s", provider.get("name"), e)
         return None
 
+    async def _try_tempmail_lol(self, client: httpx.AsyncClient, provider: Dict[str, Any]) -> Optional[Dict[str, str]]:
+        """Try creating an account via TempMail.lol API."""
+        base_url = (provider.get("api_url") or "https://api.tempmail.lol/v2").rstrip("/")
+        try:
+            r_c = await client.get(f"{base_url}/inbox/create")
+            if r_c.status_code not in (200, 201):
+                return None
+            data = r_c.json()
+            address = data.get("address")
+            token = data.get("token")
+            if not address or not token:
+                return None
+            domain = address.split("@")[-1]
+            if is_domain_rejected(domain):
+                return None
+
+            await self.libertai_client.send_login_email(address)
+
+            for _ in range(6):
+                await asyncio.sleep(2.0)
+                r_in = await client.get(f"{base_url}/inbox?token={token}")
+                if r_in.status_code == 200:
+                    emails = r_in.json().get("emails", [])
+                    if emails:
+                        body = emails[0].get("body", "") or emails[0].get("html", "") or str(emails[0])
+                        codes = re.findall(r"\b\d{6}\b", body)
+                        if codes:
+                            code = codes[0]
+                            return await self._verify_and_fetch_key(client, address, code, domain)
+            mark_domain_rejected(domain, ttl_seconds=120)
+        except Exception as e:
+            logger.debug("TempMail.lol attempt error: %s", e)
+        return None
+
+    async def _try_duckmail(self, client: httpx.AsyncClient, provider: Dict[str, Any]) -> Optional[Dict[str, str]]:
+        """Try creating an account via DuckMail API."""
+        base_url = (provider.get("api_url") or "https://api.duckmail.sbs").rstrip("/")
+        try:
+            r_dom = await client.get(f"{base_url}/domains")
+            if r_dom.status_code != 200:
+                return None
+            members = r_dom.json().get("hydra:member", [])
+            domains = [d["domain"] for d in members if not is_domain_rejected(d["domain"])]
+            if not domains:
+                return None
+            domain = secrets.choice(domains)
+            username = f"user_{secrets.token_hex(4)}"
+            email = f"{username}@{domain}"
+            password = f"P@{secrets.token_hex(6)}"
+
+            r_acc = await client.post(f"{base_url}/accounts", json={"address": email, "password": password})
+            if r_acc.status_code not in (200, 201):
+                return None
+
+            r_tok = await client.post(f"{base_url}/token", json={"address": email, "password": password})
+            if r_tok.status_code != 200:
+                return None
+            mail_token = r_tok.json().get("token")
+
+            await self.libertai_client.send_login_email(email)
+
+            for _ in range(6):
+                await asyncio.sleep(2.0)
+                r_msgs = await client.get(f"{base_url}/messages", headers={"Authorization": f"Bearer {mail_token}"})
+                if r_msgs.status_code == 200:
+                    items = r_msgs.json().get("hydra:member", [])
+                    if items:
+                        mid = items[0]["id"]
+                        r_det = await client.get(f"{base_url}/messages/{mid}", headers={"Authorization": f"Bearer {mail_token}"})
+                        text = r_det.json().get("text", "") or r_det.json().get("intro", "") or str(r_det.json().get("html", ""))
+                        codes = re.findall(r"\b\d{6}\b", text)
+                        if codes:
+                            code = codes[0]
+                            return await self._verify_and_fetch_key(client, email, code, domain)
+            mark_domain_rejected(domain, ttl_seconds=120)
+        except Exception as e:
+            logger.debug("DuckMail attempt error: %s", e)
+        return None
+
+    async def _try_inbound_webhook(self, client: httpx.AsyncClient, provider: Dict[str, Any]) -> Optional[Dict[str, str]]:
+        """Try creating an account via local/configured Inbound Webhook buffer."""
+        try:
+            validate_mail_provider({**provider, "provider_type": "inbound_webhook"})
+            domain = provider["domain"].strip()
+            email = f"user_{secrets.token_hex(4)}@{domain}"
+            poll_url = _poll_url(provider["api_url"], email)
+            await self.libertai_client.send_login_email(email)
+
+            for _ in range(8):
+                await asyncio.sleep(2.0)
+                r_poll = await client.get(poll_url, headers=mail_auth_headers(provider))
+                if r_poll.status_code == 200:
+                    data = r_poll.json()
+                    if data.get("success") and data.get("code"):
+                        code = data["code"]
+                        return await self._verify_and_fetch_key(client, email, code, domain)
+        except Exception as e:
+            logger.debug("Inbound webhook attempt error: %s", e)
+        return None
+
     async def _try_neighbours(self, client: httpx.AsyncClient, provider: Dict[str, Any]) -> Optional[Dict[str, str]]:
         """Try creating an account via neighbours.sh API with pristine fast-delivering domains."""
         base_url = (provider.get("api_url") or "https://neighbours.sh/api/v1").rstrip("/")
@@ -166,12 +299,7 @@ class TempMailRegistrar:
             username = f"user_{secrets.token_hex(4)}"
             email = f"{username}@{domain}"
 
-            r_lib = await client.post(
-                "https://inference.api.libertai.io/auth/login/email",
-                json={"email": email, "redirect_base": "https://chat.libertai.io"},
-            )
-            if r_lib.status_code != 204:
-                return None
+            await self.libertai_client.send_login_email(email)
 
             # Fast polling: max 4 checks (8 seconds total). Fast failover if mail delayed.
             for _ in range(4):
@@ -213,12 +341,7 @@ class TempMailRegistrar:
             if is_domain_rejected(domain):
                 return None
 
-            r_lib = await client.post(
-                "https://inference.api.libertai.io/auth/login/email",
-                json={"email": email, "redirect_base": "https://chat.libertai.io"},
-            )
-            if r_lib.status_code != 204:
-                return None
+            await self.libertai_client.send_login_email(email)
 
             for _ in range(10):
                 await asyncio.sleep(2.5)
@@ -249,12 +372,7 @@ class TempMailRegistrar:
             if is_domain_rejected(domain):
                 return None
 
-            r_lib = await client.post(
-                "https://inference.api.libertai.io/auth/login/email",
-                json={"email": email, "redirect_base": "https://chat.libertai.io"},
-            )
-            if r_lib.status_code != 204:
-                return None
+            await self.libertai_client.send_login_email(email)
 
             for _ in range(8):
                 await asyncio.sleep(2.0)
@@ -288,12 +406,7 @@ class TempMailRegistrar:
         username = f"user_{secrets.token_hex(4)}"
         email = f"{username}@{domain}"
         try:
-            r_lib = await client.post(
-                "https://inference.api.libertai.io/auth/login/email",
-                json={"email": email, "redirect_base": "https://chat.libertai.io"},
-            )
-            if r_lib.status_code != 204:
-                return None
+            await self.libertai_client.send_login_email(email)
 
             for _ in range(8):
                 await asyncio.sleep(2.0)
@@ -315,92 +428,91 @@ class TempMailRegistrar:
     async def _verify_and_fetch_key(
         self, client: httpx.AsyncClient, email: str, code: str, domain: str
     ) -> Optional[Dict[str, str]]:
-        """Verifies OTP code with LibertAI and fetches API Key."""
-        r_v = await client.post(
-            "https://inference.api.libertai.io/auth/verify-magic-link",
-            json={"email": email, "code": code},
-        )
-        if r_v.status_code == 200:
-            data = r_v.json()
-            at = data["access_token"]
-            rt = data["refresh_token"]
-            r_k = await client.get(
-                "https://inference.api.libertai.io/api-keys/chat",
-                headers={"Authorization": f"Bearer {at}"},
-            )
-            if r_k.status_code == 200:
-                ck = r_k.json().get("key")
-                return {
-                    "email": email,
-                    "access_token": at,
-                    "refresh_token": rt,
-                    "chat_api_key": ck,
-                }
-        elif r_v.status_code == 403 and "domain" in r_v.text.lower():
-            logger.info("LibertAI rejected domain %s, blacklisting", domain)
-            mark_domain_rejected(domain)
-        return None
+        """Use the configured LibertAI transport for OTP and key retrieval."""
+        try:
+            tokens = await self.libertai_client.verify_code(email, str(code))
+            access, refresh = tokens.get("access_token"), tokens.get("refresh_token")
+            if not isinstance(access, str) or not access.strip() or not isinstance(refresh, str) or not refresh.strip():
+                return None
+            key = await self.libertai_client.fetch_chat_api_key(access, account_email=email)
+            if not isinstance(key, str) or not key.strip():
+                return None
+            return {"email": email, "access_token": access, "refresh_token": refresh, "chat_api_key": key}
+        except LibertAIException as exc:
+            if exc.status_code == 403 and "domain" in str(exc).lower():
+                mark_domain_rejected(domain)
+            return None
 
-    async def register_account(self, max_attempts: int = 2) -> Dict[str, Any]:
-        """
-        Attempts registration with silent provider/domain fallback.
-        Dynamically queries active providers from database (supporting user-defined custom APIs).
-        Fast failover within ~20 seconds to prevent reverse proxy gateway 504 timeouts.
-        """
+    async def register_account(self, max_attempts: int = 2, max_wait_seconds: float = 20) -> Dict[str, Any]:
+        """Bound the entire operation (DB, providers, polling, retries) by a deadline."""
+        if max_attempts < 1 or max_wait_seconds <= 0:
+            raise ValueError("Registration attempts and time budget must be positive")
+        deadline = asyncio.get_running_loop().time() + max_wait_seconds
+        try:
+            return await asyncio.wait_for(self._register_with_deadline(max_attempts, deadline), timeout=max_wait_seconds)
+        except asyncio.TimeoutError as exc:
+            raise RuntimeError("Automatic registration exceeded its total time budget") from exc
+
+    async def _register_with_deadline(self, max_attempts: int, deadline: float) -> Dict[str, Any]:
+        handlers = {
+            "custom_http": self._try_custom_http,
+            "inbound_webhook": self._try_inbound_webhook,
+            "tempmail_lol": self._try_tempmail_lol,
+            "duckmail": self._try_duckmail,
+            "neighbours": self._try_neighbours,
+            "tempmail_ing": self._try_tempmail_ing,
+            "mtempmail": self._try_mtempmail,
+            "tempmail_plus": self._try_tempmail_plus,
+        }
         for attempt in range(max_attempts):
-            logger.info("Auto-register attempt %d/%d: Querying active providers...", attempt + 1, max_attempts)
             providers = await get_active_mail_providers()
             if not providers:
-                # Default fallback
-                providers = [{"name": "neighbours.sh", "provider_type": "neighbours", "api_url": "https://neighbours.sh/api/v1"}]
-
+                raise RuntimeError("No active mail providers; automatic registration is disabled")
             async with await self._get_http_client() as client:
-                res = None
-                for p in providers:
-                    p_type = p.get("provider_type", "")
-                    if p_type == "custom_http":
-                        res = await self._try_custom_http(client, p)
-                    elif p_type == "neighbours":
-                        res = await self._try_neighbours(client, p)
-                    elif p_type == "tempmail_ing":
-                        res = await self._try_tempmail_ing(client, p)
-                    elif p_type == "mtempmail":
-                        res = await self._try_mtempmail(client, p)
-                    elif p_type == "tempmail_plus":
-                        res = await self._try_tempmail_plus(client, p)
-
-                    if res:
-                        break
-
-                if res:
-                    email = res["email"]
-                    access_token = res["access_token"]
-                    refresh_token = res["refresh_token"]
-                    chat_api_key = res["chat_api_key"]
-
-                    account = await add_or_update_account(
-                        email=email,
-                        access_token=access_token,
-                        refresh_token=refresh_token,
-                        chat_api_key=chat_api_key,
-                    )
-
+                for index, provider in enumerate(providers):
+                    handler = handlers.get(provider.get("provider_type", ""))
+                    if handler is None:
+                        logger.warning("Unsupported mail provider type: %s", provider.get("provider_type"))
+                        continue
+                    remaining = deadline - asyncio.get_running_loop().time()
+                    if remaining <= 0:
+                        raise asyncio.TimeoutError()
+                    # A slow source cannot consume the entire fallback budget. Keep
+                    # time for each remaining source and subsequent configured round.
+                    slots = (len(providers) - index) + (max_attempts - attempt - 1) * len(providers)
                     try:
-                        import json
-                        sub = await self.libertai_client.get_subscription(access_token, account_email=email)
-                        if sub:
-                            await update_account_usage(account["id"], json.dumps(sub))
-                            account["usage_info"] = json.dumps(sub)
-                    except Exception:
-                        pass
-
-                    logger.info("Auto-registration succeeded on attempt %d: ID %s (%s)", attempt + 1, account.get("id"), email)
+                        validate_mail_provider(provider)
+                        result = await asyncio.wait_for(handler(client, provider), timeout=remaining / slots)
+                        if not result or not all(isinstance(result.get(field), str) and result[field].strip()
+                                                 for field in ("email", "access_token", "refresh_token", "chat_api_key")):
+                            continue
+                    except asyncio.TimeoutError:
+                        logger.info("Mail provider %s exhausted its time slice", provider.get("name"))
+                        continue
+                    except Exception as exc:
+                        logger.warning("Mail provider %s failed: %s", provider.get("name"), type(exc).__name__)
+                        continue
+                    account = await add_or_update_account(
+                        email=result["email"], access_token=result["access_token"],
+                        refresh_token=result["refresh_token"], chat_api_key=result["chat_api_key"],
+                    )
+                    # Usage is optional; it must not spend the registration budget
+                    # after credentials have already been successfully persisted.
+                    remaining = deadline - asyncio.get_running_loop().time()
+                    if remaining > 0:
+                        try:
+                            subscription = await asyncio.wait_for(
+                                self.libertai_client.get_subscription(result["access_token"], account_email=result["email"]),
+                                timeout=min(1.0, remaining / 2),
+                            )
+                            if subscription:
+                                encoded = json.dumps(subscription)
+                                await update_account_usage(account["id"], encoded)
+                                account["usage_info"] = encoded
+                        except Exception:
+                            pass
                     return account
-
-            logger.info("Attempt %d failed, silently rotating to next email source...", attempt + 1)
-            await asyncio.sleep(1.0)
-
-        raise RuntimeError("所有可用邮箱源（包括自定义接口与内置源）暂时无法收信或域名被风控，请检查邮箱配置或稍后重试。")
+        raise RuntimeError("所有可用邮箱源暂时无法收信或域名被风控，请检查邮箱配置或稍后重试。")
 
 
 registrar = TempMailRegistrar()

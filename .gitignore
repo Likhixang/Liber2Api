@@ -1,6 +1,12 @@
 # Environments
 .env
 .env.local
+.env.*
+!.env.example
+
+# Local deployment configuration (publish only the example)
+/docker-compose.yml
+/docker-compose.override.yml
 __pycache__/
 *.py[cod]
 *$py.class

@@ -1,6 +1,7 @@
 from urllib.parse import quote_plus, urlparse, urlunparse
 import httpx
-from typing import Any, AsyncGenerator, Dict, Optional, Tuple
+from typing import Any, AsyncGenerator, AsyncIterator, Dict, Optional, Tuple
+import anyio
 import app.config as config
 from app.stream_normalizer import StreamReasoningNormalizer, normalize_sse_stream
 
@@ -76,6 +77,52 @@ def resolve_request_endpoint(
         headers["X-Resin-Account"] = account_email.strip()
 
     return proxy_url, headers
+
+
+async def _close_upstream(client: httpx.AsyncClient, response: Optional[httpx.Response] = None):
+    # Starlette cancels stream tasks inside an AnyIO cancellation scope.
+    with anyio.CancelScope(shield=True):
+        try:
+            if response is not None:
+                await response.aclose()
+        finally:
+            await client.aclose()
+
+
+class _CompletionStream:
+    """Own a response even before iteration starts; callers must close discarded streams."""
+
+    def __init__(self, client, response):
+        self._client = client
+        self._response = response
+        self._stream = normalize_sse_stream(response.aiter_bytes())
+        self._closed = False
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if self._closed:
+            raise StopAsyncIteration
+        try:
+            return await anext(self._stream)
+        except BaseException:
+            try:
+                await self.aclose()
+            except Exception:
+                # Preserve transport errors/cancellation for the caller's policy.
+                pass
+            raise
+
+    async def aclose(self):
+        if self._closed:
+            return
+        self._closed = True
+        with anyio.CancelScope(shield=True):
+            try:
+                await self._stream.aclose()
+            finally:
+                await _close_upstream(self._client, self._response)
 
 
 class LibertAIClient:
@@ -288,10 +335,13 @@ class LibertAIClient:
 
     async def forward_completion_stream(
         self, chat_api_key: str, payload: dict, account_email: Optional[str] = None
-    ) -> Tuple[int, AsyncGenerator[bytes, None]]:
+    ) -> Tuple[int, AsyncIterator[bytes]]:
         """
-        Forward streaming chat completion to LibertAI.
-        Returns (status_code, stream_generator).
+        Forward streaming completion. Returns (status_code, closeable async iterator).
+
+        The caller owns the returned iterator: close discarded streams, and attach
+        its aclose to the downstream response's cleanup/background task. Upstream
+        iteration errors propagate; already-emitted output must never be replayed.
         """
         target_url = f"{self.api_base}/chat/completions"
         headers_in = {
@@ -300,25 +350,22 @@ class LibertAIClient:
         }
         url, headers = resolve_request_endpoint(target_url, account_email=account_email, extra_headers=headers_in)
         client = self._get_client(account_email=account_email)
-        req = client.build_request("POST", url, json=payload, headers=headers)
-        resp = await client.send(req, stream=True)
-
-        if resp.status_code != 200:
+        resp = None
+        try:
+            req = client.build_request("POST", url, json=payload, headers=headers)
+            resp = await client.send(req, stream=True)
+            if resp.status_code == 200:
+                return resp.status_code, _CompletionStream(client, resp)
             error_bytes = await resp.aread()
-            await resp.aclose()
-            await client.aclose()
-
-            async def error_gen() -> AsyncGenerator[bytes, None]:
-                yield error_bytes
-
-            return resp.status_code, error_gen()
-
-        async def raw_stream_gen() -> AsyncGenerator[bytes, None]:
+        except BaseException:
             try:
-                async for chunk in resp.aiter_bytes():
-                    yield chunk
-            finally:
-                await resp.aclose()
-                await client.aclose()
+                await _close_upstream(client, resp)
+            except Exception:
+                pass
+            raise
+        await _close_upstream(client, resp)
 
-        return resp.status_code, normalize_sse_stream(raw_stream_gen())
+        async def error_gen() -> AsyncGenerator[bytes, None]:
+            yield error_bytes
+
+        return resp.status_code, error_gen()
