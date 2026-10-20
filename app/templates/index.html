@@ -920,12 +920,30 @@
     async function autoRegisterAccount() {
       const btn = document.getElementById('btn-auto-reg');
       btn.disabled = true;
-      btn.innerHTML = '<i data-lucide=\"loader-2\" class=\"w-3.5 h-3.5 animate-spin\"></i><span>正在自动接码建号...</span>';
+      btn.innerHTML = '<i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i><span>正在自动接码建号...</span>';
       lucide.createIcons();
 
       try {
         const resp = await fetch('/api/accounts/auto-register', { method: 'POST' });
-        const data = await resp.json();
+        let data = {};
+        const contentType = resp.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          try {
+            data = await resp.json();
+          } catch (e) {
+            data = { detail: '解析响应 JSON 失败' };
+          }
+        } else {
+          const rawText = await resp.text();
+          if (resp.status === 504) {
+            throw new Error('网关超时 (504)，上游发信或接码延迟，请稍后重试');
+          } else if (resp.status === 502) {
+            throw new Error('网关错误 (502)，请检查后台容器');
+          } else {
+            throw new Error(`服务返回非JSON响应 (HTTP ${resp.status})`);
+          }
+        }
+
         if (!resp.ok) {
           throw new Error(data.detail || '自动建号失败');
         }
@@ -935,7 +953,7 @@
         showToast('自动建号异常: ' + err.message, 'error');
       } finally {
         btn.disabled = false;
-        btn.innerHTML = '<i data-lucide=\"sparkles\" class=\"w-3.5 h-3.5\"></i><span>一键自动注册新号</span>';
+        btn.innerHTML = '<i data-lucide="sparkles" class="w-3.5 h-3.5"></i><span>一键自动注册新号</span>';
         lucide.createIcons();
       }
     }

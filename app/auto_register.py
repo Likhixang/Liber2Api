@@ -134,7 +134,7 @@ class TempMailRegistrar:
         return None
 
     async def _try_neighbours(self, client: httpx.AsyncClient, provider: Dict[str, Any]) -> Optional[Dict[str, str]]:
-        """Try creating an account via neighbours.sh API with 20+ pristine domains."""
+        """Try creating an account via neighbours.sh API with pristine fast-delivering domains."""
         base_url = (provider.get("api_url") or "https://neighbours.sh/api/v1").rstrip("/")
         try:
             r_cfg = await client.get(f"{base_url}/config/domains")
@@ -145,7 +145,11 @@ class TempMailRegistrar:
             if not valid_domains:
                 return None
 
-            domain = secrets.choice(valid_domains)
+            # Prioritize fast-delivering pristine domains verified working with LibertAI
+            verified_priority = ["vanish.wtf", "femboy.foundation", "diddyblud.shop", "iqpill.online", "edging.life"]
+            candidate_domains = [d for d in verified_priority if d in valid_domains]
+            domain = secrets.choice(candidate_domains) if candidate_domains else secrets.choice(valid_domains)
+
             username = f"user_{secrets.token_hex(4)}"
             email = f"{username}@{domain}"
 
@@ -156,7 +160,8 @@ class TempMailRegistrar:
             if r_lib.status_code != 204:
                 return None
 
-            for _ in range(10):
+            # Fast polling: max 4 checks (8 seconds total). Fast failover if mail delayed.
+            for _ in range(4):
                 await asyncio.sleep(2.0)
                 r_inbox = await client.get(f"{base_url}/inbox/{email}")
                 if r_inbox.status_code == 200:
@@ -166,13 +171,13 @@ class TempMailRegistrar:
                         r_msg = await client.get(f"{base_url}/inbox/{email}/{uid}")
                         if r_msg.status_code == 200:
                             msg_data = r_msg.json().get("data", {})
-                            codes = msg_data.get("codes", [])
-                            if not codes:
-                                text = msg_data.get("text", "") or msg_data.get("html", "")
-                                codes = re.findall(r"\b\d{6}\b", text)
+                            text = msg_data.get("text", "") or msg_data.get("html", "")
+                            codes = re.findall(r"\b\d{6}\b", text)
                             if codes:
                                 code = codes[0]
                                 return await self._verify_and_fetch_key(client, email, code, domain)
+            # Mark domain rejected temporarily if not delivered in 8s
+            mark_domain_rejected(domain, ttl_seconds=120)
         except Exception as e:
             logger.debug("neighbours.sh attempt error: %s", e)
         return None
@@ -323,10 +328,11 @@ class TempMailRegistrar:
             mark_domain_rejected(domain)
         return None
 
-    async def register_account(self, max_attempts: int = 5) -> Dict[str, Any]:
+    async def register_account(self, max_attempts: int = 2) -> Dict[str, Any]:
         """
         Attempts registration with silent provider/domain fallback.
         Dynamically queries active providers from database (supporting user-defined custom APIs).
+        Fast failover within ~20 seconds to prevent reverse proxy gateway 504 timeouts.
         """
         for attempt in range(max_attempts):
             logger.info("Auto-register attempt %d/%d: Querying active providers...", attempt + 1, max_attempts)
